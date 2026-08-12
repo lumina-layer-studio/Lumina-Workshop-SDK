@@ -1,12 +1,15 @@
 import {
   WORKSHOP_API_VERSION,
+  WORKSHOP_RPC_EVENT_NAMES,
   WORKSHOP_RPC_VERSION,
   WorkshopColorLibrary,
   WorkshopImageHandoff,
   WorkshopPickedImage,
   WorkshopProjectRecord,
   WorkshopRpcMethod,
+  WorkshopRpcEvent,
   WorkshopRpcResponse,
+  WorkshopReadyMessage,
   WorkshopUiState,
   createRequestEnvelope,
 } from "./contracts.js";
@@ -77,6 +80,9 @@ export interface WorkshopClient {
   };
   ui: {
     getState(): Promise<WorkshopUiState>;
+    subscribeState(
+      listener: (state: WorkshopUiState) => void,
+    ): () => void;
   };
   status: {
     progress(
@@ -141,6 +147,36 @@ function parseResponse(value: unknown): WorkshopRpcResponse | null {
   return value as unknown as WorkshopRpcResponse;
 }
 
+function parseUiState(value: unknown): WorkshopUiState | null {
+  if (
+    !isRecord(value) ||
+    (value.locale !== "zh-CN" && value.locale !== "en-US") ||
+    (value.theme !== "light" && value.theme !== "dark") ||
+    !isRecord(value.tokens) ||
+    Object.values(value.tokens).some((token) => typeof token !== "string")
+  ) {
+    return null;
+  }
+  return value as unknown as WorkshopUiState;
+}
+
+function parseEvent(value: unknown): WorkshopRpcEvent | null {
+  if (
+    !isRecord(value) ||
+    value.protocol !== "lumina-workshop-rpc" ||
+    value.version !== WORKSHOP_RPC_VERSION ||
+    value.kind !== "event" ||
+    value.event !== "ui.stateChanged"
+  ) {
+    return null;
+  }
+  const state = parseUiState(value.payload);
+  if (state === null) {
+    return null;
+  }
+  return { ...value, payload: state } as WorkshopRpcEvent;
+}
+
 class PortWorkshopClient implements WorkshopClient {
   readonly sessionId: string;
   readonly image;
@@ -154,13 +190,18 @@ class PortWorkshopClient implements WorkshopClient {
   private readonly port: MessagePort;
   private readonly pending = new Map<string, PendingRequest>();
   private readonly locallyTimedOutRequestIds = new Set<string>();
+  private readonly uiStateListeners = new Set<
+    (state: WorkshopUiState) => void
+  >();
+  private latestUiState: WorkshopUiState | null = null;
+  private uiStateEventSequence = 0;
   private requestSequence = 0;
   private closed = false;
 
   constructor(sessionId: string, port: MessagePort) {
     this.sessionId = sessionId;
     this.port = port;
-    this.port.onmessage = (event) => this.handleResponse(event.data);
+    this.port.onmessage = (event) => this.handleMessage(event.data);
     this.port.onmessageerror = () => {
       this.failProtocol(
         new WorkshopClientError(
@@ -209,7 +250,38 @@ class PortWorkshopClient implements WorkshopClient {
         ),
     };
     this.ui = {
-      getState: () => this.request<WorkshopUiState>("ui.getState", {}),
+      getState: async () => {
+        if (this.closed) {
+          throw new WorkshopClientError(
+            "CLIENT_CLOSED",
+            "The Workshop connection has been closed.",
+          );
+        }
+        if (this.latestUiState !== null) {
+          return this.latestUiState;
+        }
+        const eventSequenceAtRequest = this.uiStateEventSequence;
+        const state = await this.request<WorkshopUiState>("ui.getState", {});
+        if (
+          this.uiStateEventSequence !== eventSequenceAtRequest &&
+          this.latestUiState !== null
+        ) {
+          return this.latestUiState;
+        }
+        return state;
+      },
+      subscribeState: (listener: (state: WorkshopUiState) => void) => {
+        if (this.closed) {
+          return () => {};
+        }
+        this.uiStateListeners.add(listener);
+        if (this.latestUiState !== null) {
+          this.notifyUiStateListener(listener, this.latestUiState);
+        }
+        return () => {
+          this.uiStateListeners.delete(listener);
+        };
+      },
     };
     this.status = {
       progress: (value: {
@@ -241,6 +313,7 @@ class PortWorkshopClient implements WorkshopClient {
     this.port.onmessage = null;
     this.port.onmessageerror = null;
     this.port.close();
+    this.uiStateListeners.clear();
     this.rejectAll(
       new WorkshopClientError(
         "CLIENT_CLOSED",
@@ -304,7 +377,16 @@ class PortWorkshopClient implements WorkshopClient {
     });
   }
 
-  private handleResponse(value: unknown): void {
+  private handleMessage(value: unknown): void {
+    const event = parseEvent(value);
+    if (event !== null) {
+      this.publishUiState(event.payload);
+      return;
+    }
+    if (isRecord(value) && value.kind === "event") {
+      return;
+    }
+
     const response = parseResponse(value);
     if (response === null) {
       this.failProtocol(
@@ -346,6 +428,25 @@ class PortWorkshopClient implements WorkshopClient {
     );
   }
 
+  private publishUiState(state: WorkshopUiState): void {
+    this.latestUiState = state;
+    this.uiStateEventSequence += 1;
+    for (const listener of [...this.uiStateListeners]) {
+      this.notifyUiStateListener(listener, state);
+    }
+  }
+
+  private notifyUiStateListener(
+    listener: (state: WorkshopUiState) => void,
+    state: WorkshopUiState,
+  ): void {
+    try {
+      listener(state);
+    } catch {
+      // A module listener must not interrupt other listeners or the RPC link.
+    }
+  }
+
   private failProtocol(error: WorkshopClientError): void {
     if (this.closed) {
       return;
@@ -354,6 +455,8 @@ class PortWorkshopClient implements WorkshopClient {
     this.port.onmessage = null;
     this.port.onmessageerror = null;
     this.port.close();
+    this.uiStateListeners.clear();
+    this.latestUiState = null;
     this.rejectAll(error);
   }
 
@@ -441,15 +544,14 @@ export async function connectWorkshop(
 
     windowObject.addEventListener("message", onMessage);
     try {
-      windowObject.parent.postMessage(
-        {
+      const readyMessage: WorkshopReadyMessage = {
           type: "lumina.workshop.ready",
           moduleId: options.moduleId,
           moduleVersion: options.moduleVersion,
           apiVersion: WORKSHOP_API_VERSION,
-        },
-        "*",
-      );
+          events: [...WORKSHOP_RPC_EVENT_NAMES],
+      };
+      windowObject.parent.postMessage(readyMessage, "*");
     } catch (error) {
       finishWithError(
         new WorkshopClientError(

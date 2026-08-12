@@ -71,8 +71,274 @@ test("connects only after the host transfers one MessagePort", async () => {
     moduleId: "fixture.hello",
     moduleVersion: "1.0.0",
     apiVersion: "1.0.0",
+    events: ["ui.stateChanged"],
   });
   assert.equal(client.sessionId, "session-1");
+  client.close();
+  channel.port1.close();
+});
+
+test("subscribes to host UI state events without interrupting RPC", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  const received = [];
+  const unsubscribe = client.ui.subscribeState((state) => {
+    received.push(`${state.locale}:${state.theme}`);
+  });
+
+  channel.port1.postMessage({
+    protocol: "lumina-workshop-rpc",
+    version: 1,
+    kind: "event",
+    event: "ui.stateChanged",
+    payload: {
+      locale: "en-US",
+      theme: "light",
+      tokens: { "--lumina-surface": "#fff" },
+    },
+  });
+
+  channel.port1.onmessage = ({ data }) => {
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: {
+        locale: "zh-CN",
+        theme: "dark",
+        tokens: {},
+      },
+    });
+  };
+  assert.equal((await client.ui.getState()).theme, "light");
+  assert.deepEqual(received, ["en-US:light"]);
+
+  unsubscribe();
+  unsubscribe();
+  channel.port1.postMessage({
+    protocol: "lumina-workshop-rpc",
+    version: 1,
+    kind: "event",
+    event: "ui.stateChanged",
+    payload: { locale: "zh-CN", theme: "dark", tokens: {} },
+  });
+  await client.projects.latest();
+  assert.equal((await client.ui.getState()).theme, "dark");
+  assert.deepEqual(received, ["en-US:light"]);
+
+  client.close();
+  channel.port1.close();
+});
+
+test("isolates a failing UI state listener from other listeners", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  const received = [];
+  client.ui.subscribeState(() => {
+    throw new Error("module listener failed");
+  });
+  client.ui.subscribeState((state) => received.push(state.theme));
+
+  channel.port1.postMessage({
+    protocol: "lumina-workshop-rpc",
+    version: 1,
+    kind: "event",
+    event: "ui.stateChanged",
+    payload: { locale: "en-US", theme: "light", tokens: {} },
+  });
+  channel.port1.onmessage = ({ data }) => {
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: null,
+    });
+  };
+  await client.projects.latest();
+  assert.deepEqual(received, ["light"]);
+
+  assert.equal(await client.projects.latest(), null);
+
+  client.close();
+  channel.port1.close();
+});
+
+test("replays a UI event received before state subscription", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  channel.port1.postMessage({
+    protocol: "lumina-workshop-rpc",
+    version: 1,
+    kind: "event",
+    event: "ui.stateChanged",
+    payload: { locale: "en-US", theme: "light", tokens: {} },
+  });
+  channel.port1.onmessage = ({ data }) => {
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: null,
+    });
+  };
+  await client.projects.latest();
+
+  const received = [];
+  client.ui.subscribeState((state) => received.push(state));
+  assert.deepEqual(received, [
+    { locale: "en-US", theme: "light", tokens: {} },
+  ]);
+
+  client.close();
+  channel.port1.close();
+});
+
+test("does not let a late getState snapshot overwrite a newer event", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  const received = [];
+  client.ui.subscribeState((state) => received.push(state));
+  channel.port1.onmessage = ({ data }) => {
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "event",
+      event: "ui.stateChanged",
+      payload: { locale: "en-US", theme: "light", tokens: {} },
+    });
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: { locale: "zh-CN", theme: "dark", tokens: {} },
+    });
+  };
+
+  const state = await client.ui.getState();
+  assert.deepEqual(state, {
+    locale: "en-US",
+    theme: "light",
+    tokens: {},
+  });
+  assert.deepEqual(received, [state]);
+
+  client.close();
+  channel.port1.close();
+});
+
+test("applies a UI event that arrives after the getState response", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  let resolveEvent;
+  const eventReceived = new Promise((resolve) => {
+    resolveEvent = resolve;
+  });
+  const received = [];
+  client.ui.subscribeState((state) => {
+    received.push(state);
+    resolveEvent();
+  });
+  channel.port1.onmessage = ({ data }) => {
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: { locale: "zh-CN", theme: "dark", tokens: {} },
+    });
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "event",
+      event: "ui.stateChanged",
+      payload: { locale: "en-US", theme: "light", tokens: {} },
+    });
+  };
+
+  assert.deepEqual(await client.ui.getState(), {
+    locale: "zh-CN",
+    theme: "dark",
+    tokens: {},
+  });
+  await eventReceived;
+  assert.deepEqual(received, [
+    { locale: "en-US", theme: "light", tokens: {} },
+  ]);
+
+  client.close();
+  channel.port1.close();
+});
+
+test("ignores invalid or old-version UI events without caching them", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  for (const event of [
+    {
+      protocol: "lumina-workshop-rpc",
+      version: 0,
+      kind: "event",
+      event: "ui.stateChanged",
+      payload: { locale: "en-US", theme: "light", tokens: {} },
+    },
+    {
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "event",
+      event: "ui.stateChanged",
+      payload: { locale: "xx", theme: "neon", tokens: {} },
+    },
+  ]) {
+    channel.port1.postMessage(event);
+  }
+  channel.port1.onmessage = ({ data }) => {
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: null,
+    });
+  };
+  assert.equal(await client.projects.latest(), null);
+
+  const received = [];
+  client.ui.subscribeState((state) => received.push(state));
+  assert.deepEqual(received, []);
+
   client.close();
   channel.port1.close();
 });
@@ -168,6 +434,73 @@ test("maps valid responses and rejects pending requests when closed", async () =
   client.close();
   await assert.rejects(
     pending,
+    (error) =>
+      error instanceof WorkshopClientError && error.code === "CLIENT_CLOSED",
+  );
+  channel.port1.close();
+});
+
+test("continues requesting UI snapshots from a host that sends no events", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  let requestCount = 0;
+  channel.port1.onmessage = ({ data }) => {
+    requestCount += 1;
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: {
+        locale: requestCount === 1 ? "zh-CN" : "en-US",
+        theme: requestCount === 1 ? "dark" : "light",
+        tokens: {},
+      },
+    });
+  };
+
+  assert.equal((await client.ui.getState()).theme, "dark");
+  assert.equal((await client.ui.getState()).theme, "light");
+  assert.equal(requestCount, 2);
+
+  client.close();
+  channel.port1.close();
+});
+
+test("rejects getState after close even when an event was cached", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  channel.port1.postMessage({
+    protocol: "lumina-workshop-rpc",
+    version: 1,
+    kind: "event",
+    event: "ui.stateChanged",
+    payload: { locale: "en-US", theme: "light", tokens: {} },
+  });
+  channel.port1.onmessage = ({ data }) => {
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: null,
+    });
+  };
+  await client.projects.latest();
+  client.close();
+
+  await assert.rejects(
+    client.ui.getState(),
     (error) =>
       error instanceof WorkshopClientError && error.code === "CLIENT_CLOSED",
   );

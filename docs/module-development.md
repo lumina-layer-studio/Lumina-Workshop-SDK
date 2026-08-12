@@ -21,10 +21,10 @@ frame 拦截网络、WebSocket、跳转、弹窗、权限和下载。普通浏�
 公开 SDK 的稳定身份是：
 
 - npm 包名：`@lumina/workshop-sdk`
-- 版本：`1.0.1`
-- GitHub Release tag：`v1.0.1`
-- 资产：`lumina-workshop-sdk-1.0.1.tgz`
-- 校验文件：`lumina-workshop-sdk-1.0.1.tgz.sha256`
+- 版本：`1.0.2`
+- GitHub Release tag：`v1.0.2`
+- 资产：`lumina-workshop-sdk-1.0.2.tgz`
+- 校验文件：`lumina-workshop-sdk-1.0.2.tgz.sha256`
 
 SDK 只通过公开 `Lumina-Workshop-SDK` 仓库的不可变 GitHub Release 分发，不发布
 可变 `latest` 资产，也不发布到 npm registry。模块应直接锁定精确 Release URL：
@@ -32,7 +32,7 @@ SDK 只通过公开 `Lumina-Workshop-SDK` 仓库的不可变 GitHub Release 分�
 ```json
 {
   "dependencies": {
-    "@lumina/workshop-sdk": "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.0.1/lumina-workshop-sdk-1.0.1.tgz"
+    "@lumina/workshop-sdk": "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.0.2/lumina-workshop-sdk-1.0.2.tgz"
   }
 }
 ```
@@ -141,9 +141,19 @@ const client = await connectWorkshop({
   moduleVersion,
 });
 
+const unsubscribeUiState = client.ui.subscribeState(applyWorkshopUiState);
 applyWorkshopUiState(await client.ui.getState());
 await client.lifecycle.ready();
 ```
+
+`ui.getState()` 保证旧宿主仍可提供初始状态；SDK 1.0.2 还会在握手中声明
+`ui.stateChanged` 事件能力。支持该能力的宿主会在语言、主题或公开 token 变化时主动推送，
+无需轮询或重载 iframe。SDK 会从连接建立起缓存最后一个合法事件，订阅时同步重放；若
+`getState()` 请求期间收到更新，返回值会采用缓存的新事件而不是迟到的旧快照。因此上面的
+“先订阅，再读取初始状态”写法不会漏更新或让界面状态倒退。模块关闭长期视图时应调用
+`unsubscribeUiState()`；重复调用安全，单个监听器抛错也不会影响其他监听器或 RPC 连接。
+连接内一旦收到合法事件，最后一个事件就是权威状态，后续 `getState()` 直接返回该缓存；
+旧宿主不发送事件时，`getState()` 仍会像 1.0.1 一样逐次发起 RPC 请求。
 
 握手必须在 iframe load 后 10 秒内完成。普通请求默认 30 秒，原生图片选择最长
 5 分钟，图片交接 120 秒；控制消息不超过 1 MiB，单次二进制不超过 64 MiB。
@@ -183,7 +193,9 @@ token、Registry 签名或桌面令牌。Lumina 导入分享卡时只校验通�
 
 - 与当前 manifest 一致的模块 ID 和版本；
 - 标准 PNG 的 `ArrayBuffer`、像素宽高与非空内容；
+- 可选的原生 SVG `svgBytes`；宿主会重新验证，PNG 始终作为兼容回退；
 - 推荐物理宽高；
+- 可选的成品总厚度 `recommendedTotalThicknessMm`；
 - 可选但自洽的方形网格行列和节距；
 - 当前宿主色库 ID；
 - 1 MiB 以内的配方信封。

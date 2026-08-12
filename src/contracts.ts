@@ -2,6 +2,11 @@ export const WORKSHOP_API_VERSION = "1.0.0" as const;
 export const WORKSHOP_MANIFEST_VERSION = 1 as const;
 export const WORKSHOP_RPC_VERSION = 1 as const;
 
+export const WORKSHOP_RPC_EVENT_NAMES = ["ui.stateChanged"] as const;
+
+export type WorkshopRpcEventName =
+  (typeof WORKSHOP_RPC_EVENT_NAMES)[number];
+
 export const WORKSHOP_PERMISSION_NAMES = [
   "image.pick",
   "project.storage",
@@ -151,6 +156,24 @@ export interface WorkshopRpcResponse {
     message: string;
     retryable: boolean;
   };
+}
+
+export interface WorkshopRpcEventEnvelope {
+  protocol: "lumina-workshop-rpc";
+  version: typeof WORKSHOP_RPC_VERSION;
+  kind: "event";
+  event: "ui.stateChanged";
+  payload: WorkshopUiState;
+}
+
+export type WorkshopRpcEvent = WorkshopRpcEventEnvelope;
+
+export interface WorkshopReadyMessage {
+  type: "lumina.workshop.ready";
+  moduleId: string;
+  moduleVersion: string;
+  apiVersion: typeof WORKSHOP_API_VERSION;
+  events?: readonly WorkshopRpcEventName[];
 }
 
 export function createRequestEnvelope(

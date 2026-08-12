@@ -1,6 +1,6 @@
 {
   "name": "@lumina/workshop-sdk",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Public SDK contracts for Lumina Studio Creative Workshop modules",
   "license": "GPL-3.0-or-later",
   "repository": {

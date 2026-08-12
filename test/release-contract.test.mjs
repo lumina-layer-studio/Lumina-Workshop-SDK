@@ -10,7 +10,7 @@ const readText = (path) =>
 
 test("publishes an exact dependency-free public package identity", () => {
   assert.equal(packageValue.name, "@lumina/workshop-sdk");
-  assert.equal(packageValue.version, "1.0.1");
+  assert.equal(packageValue.version, "1.0.2");
   assert.equal(packageValue.packageManager, "pnpm@10.33.2");
   assert.equal(packageValue.engines.node, ">=22");
   assert.deepEqual(packageValue.files, ["dist", "README.md", "LICENSE"]);
@@ -52,8 +52,45 @@ test("documentation points only to the public immutable release", async () => {
   const readme = await readText("../README.md");
   const publicAsset =
     "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/" +
-    "releases/download/v1.0.1/lumina-workshop-sdk-1.0.1.tgz";
+    "releases/download/v1.0.2/lumina-workshop-sdk-1.0.2.tgz";
   assert.match(readme, new RegExp(publicAsset.replaceAll(".", "\\.")));
+  assert.doesNotMatch(readme, /v1\.0\.1|sdk-1\.0\.1/);
   assert.doesNotMatch(readme, /Lumina-studio\/releases/);
   assert.doesNotMatch(readme, /\/latest\//);
+});
+
+test("all immutable dependency examples use the 1.0.2 release identity", async () => {
+  const documentation = [
+    await readText("../README.md"),
+    await readText("../docs/module-development.md"),
+  ].join("\n");
+
+  assert.match(documentation, /版本：`1\.0\.2`/);
+  assert.match(documentation, /tag：`v1\.0\.2`/);
+  assert.doesNotMatch(documentation, /v1\.0\.1|sdk-1\.0\.1/);
+});
+
+test("release identity guard accepts exactly tag v1.0.2", async () => {
+  const workflow = await readText("../.github/workflows/release.yml");
+  const expectedTag = `v${packageValue.version}`;
+
+  assert.equal(expectedTag, "v1.0.2");
+  assert.match(workflow, /EXPECTED_TAG="v\$\{SDK_VERSION\}"/);
+  assert.match(workflow, /GITHUB_REF_NAME.*EXPECTED_TAG/);
+});
+
+test("1.0.2 documentation covers its new public contracts", async () => {
+  const documentation = [
+    await readText("../README.md"),
+    await readText("../docs/module-development.md"),
+  ].join("\n");
+
+  for (const publicContract of [
+    "svgBytes",
+    "recommendedTotalThicknessMm",
+    "subscribeState",
+    "ui.stateChanged",
+  ]) {
+    assert.match(documentation, new RegExp(publicContract.replace(".", "\\.")));
+  }
 });
