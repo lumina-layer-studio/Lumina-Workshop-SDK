@@ -77,6 +77,63 @@ test("connects only after the host transfers one MessagePort", async () => {
   channel.port1.close();
 });
 
+test("transfers the optional native SVG handoff buffer", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  const pngBytes = new ArrayBuffer(24);
+  const svgBytes = new ArrayBuffer(48);
+  const received = new Promise((resolve) => {
+    channel.port1.onmessage = ({ data }) => {
+      channel.port1.postMessage({
+        protocol: "lumina-workshop-rpc",
+        version: 1,
+        kind: "response",
+        requestId: data.requestId,
+        ok: true,
+        result: { status: "completed" },
+      });
+      resolve(data.payload);
+    };
+  });
+
+  const pending = client.handoff.image({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    projectId: "project-svg",
+    pngBytes,
+    svgBytes,
+    pixelWidth: 1,
+    pixelHeight: 1,
+    recommendedWidthMm: 2.6,
+    recommendedHeightMm: 2.6,
+    recommendedTotalThicknessMm: 1.85,
+    preserveCanvasBounds: true,
+    colorLibraryId: null,
+    recipeSource: {
+      manifestSchemaVersion: 1,
+      moduleId: "fixture.hello",
+      moduleVersion: "1.0.0",
+      projectSchemaVersion: "fixture/v1",
+      renderSchemaVersion: "fixture-render/v1",
+      payload: {},
+    },
+  });
+  const payload = await received;
+  await pending;
+
+  assert.equal(payload.pngBytes.byteLength, 24);
+  assert.equal(payload.svgBytes.byteLength, 48);
+  assert.equal(payload.recommendedTotalThicknessMm, 1.85);
+  assert.equal(pngBytes.byteLength, 0);
+  assert.equal(svgBytes.byteLength, 0);
+  client.close();
+  channel.port1.close();
+});
+
 test("maps valid responses and rejects pending requests when closed", async () => {
   const channel = new MessageChannel();
   const client = await connectWorkshop({

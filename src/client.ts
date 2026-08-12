@@ -201,7 +201,10 @@ class PortWorkshopClient implements WorkshopClient {
         this.request<{ status: "needs-confirmation" | "completed" }>(
           "handoff.image",
           value,
-          [value.pngBytes],
+          value.svgBytes instanceof ArrayBuffer &&
+            value.svgBytes !== value.pngBytes
+            ? [value.pngBytes, value.svgBytes]
+            : [value.pngBytes],
           HANDOFF_REQUEST_TIMEOUT_MS,
         ),
     };

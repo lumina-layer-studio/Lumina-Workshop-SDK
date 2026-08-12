@@ -74,10 +74,14 @@ export interface WorkshopImageHandoff {
   moduleVersion: string;
   projectId: string;
   pngBytes: ArrayBuffer;
+  /** Optional native SVG source. PNG remains the compatible fallback. */
+  svgBytes?: ArrayBuffer;
   pixelWidth: number;
   pixelHeight: number;
   recommendedWidthMm: number;
   recommendedHeightMm: number;
+  /** Optional finished output thickness, including all color layers. */
+  recommendedTotalThicknessMm?: number;
   preserveCanvasBounds: true;
   layout?: WorkshopSquareGridLayout;
   colorLibraryId: string | null;
