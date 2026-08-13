@@ -1,0 +1,64 @@
+name: Validate public Workshop SDK
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "MOVIBALE/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install the frozen dependency graph
+        run: pnpm install --frozen-lockfile
+
+      - name: Test and build the public contract
+        run: pnpm test
+
+      - name: Pack and inspect the exact public surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm pack --pack-destination dist-package
+          version="$(node -p "require('./package.json').version")"
+          tarball="dist-package/lumina-workshop-sdk-${version}.tgz"
+          test -f "${tarball}"
+          tar -tzf "${tarball}" | grep -v '/$' | LC_ALL=C sort \
+            > /tmp/sdk-members.txt
+          printf '%s\n' \
+            package/LICENSE \
+            package/README.md \
+            package/dist/client.d.ts \
+            package/dist/client.js \
+            package/dist/contracts.d.ts \
+            package/dist/contracts.js \
+            package/dist/index.d.ts \
+            package/dist/index.js \
+            package/dist/theme.d.ts \
+            package/dist/theme.js \
+            package/package.json \
+            | LC_ALL=C sort > /tmp/expected-sdk-members.txt
+          cmp /tmp/expected-sdk-members.txt /tmp/sdk-members.txt
+
+      - name: Verify generated files did not change reviewed source
+        run: git diff --exit-code
