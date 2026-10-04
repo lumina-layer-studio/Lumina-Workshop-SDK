@@ -10,8 +10,9 @@ Creative Workshop module development and release guide
 
 正式模块运行在 `sandbox="allow-scripts"` 的 iframe 中。桌面版还会按已提交的模块
 frame 拦截网络、WebSocket、跳转、弹窗、权限和下载。普通浏览器无法提供同等级的
-请求防火墙，因此只运行预装官方 seed 和测试 fixture；社区模块需要桌面版，本地模块
-只有在显式不安全开发模式中才能用合成数据调试。
+请求防火墙。支持官方目录浏览器运行的宿主只允许运行签名 Registry 中标记为 `official`
+的模块、预装官方 seed 和测试 fixture；社区、GitHub 和普通本地模块需要桌面版，本地
+模块只有在显式不安全开发模式中才能用合成数据调试。较旧宿主可能只允许预装包。
 
 这套边界对官方模块和第三方模块相同。不要尝试通过 `fetch`、CDN、动态 `import()`、
 `eval`、本地文件路径或父页面 DOM 绕过它。
@@ -40,6 +41,39 @@ SDK 只通过公开 `Lumina-Workshop-SDK` 仓库的不可变 GitHub Release 分�
 Release 同时提供小写 SHA-256 校验文件；macOS 可用 `shasum -a 256 -c` 验证。
 模块仓库必须提交 `pnpm-lock.yaml`，CI 使用 `pnpm install --frozen-lockfile`。
 不要依赖 Lumina 工作区中的 `workspace:*` 路径或未发布的 SDK 源码。
+
+### 版本兼容与预装包 / Compatibility and bundled modules
+
+| 项目 / Item | 版本 / Version | 含义 / Meaning |
+| --- | --- | --- |
+| 当前宿主的 SDK 依赖 / Host SDK dependency | `1.0.1` | 宿主的固定依赖，不是模块 SDK 的版本要求 / Host pin, not a module SDK requirement |
+| 推荐的模块 SDK / Recommended module SDK | `1.0.2` | 新模块使用精确 Release / Pin the exact release for new modules |
+| Workshop API / Manifest | `1.0.0` / `1` | 两个 SDK 版本共用 / Shared by both SDK releases |
+| 官方离线预装拼豆包 / Offline bead seed | `1.0.1` | 首次安装与离线恢复 / First installation and offline recovery |
+| 已审核的在线拼豆更新 / Reviewed bead update | `1.0.8` | 用户从签名目录安装 / User-installed catalog update |
+
+SDK 包、协议和模块版本分别管理。当前宿主已支持 SDK 1.0.2 的可选 SVG、厚度和界面
+事件扩展，虽然宿主自身仍锁定 SDK 1.0.1。面向不支持扩展的旧宿主时，应省略
+`svgBytes` 和 `recommendedTotalThicknessMm`，只发送基础 PNG 交接字段；同时提供
+PNG 不会让旧宿主接受未知字段。只面向支持扩展的宿主时，应声明并测试对应宿主范围。
+没有界面事件时使用 `ui.getState()`。在 manifest 中声明实际测试过的 `workshopApi`
+与 `luminaVersion` 范围。
+
+SDK, API, and module versions are independent. The current host supports the
+optional SDK 1.0.2 extensions while retaining its own SDK 1.0.1 dependency pin.
+For older hosts without extension support, omit `svgBytes` and
+`recommendedTotalThicknessMm` and send only base PNG handoff fields; PNG alongside
+unknown fields is not a fallback. Alternatively, require a tested host range that
+supports the extensions. Use `ui.getState()` when UI events are unavailable.
+Declare and test actual host/API compatibility in the manifest; do not infer it
+from the host SDK pin.
+
+预装包保持锁定，不会在启动时因在线新版本强制升级。在线更新先安装为候选版本，成功
+启动后才启用；离线恢复仍使用锁定的预装包。已发布 SDK、模块包与历史签名记录不可替换。
+
+The seed is pinned and does not force updates on startup. Catalog updates
+activate after the candidate starts successfully. Offline recovery uses the
+locked seed, and historical release assets/signatures remain immutable.
 
 ## 最小仓库结构
 
@@ -110,6 +144,14 @@ URL。
 
 模块 ID 是永久的全局身份，应使用小写分段名。版本、Release tag、包名和 manifest
 版本必须精确一致。同一模块 ID 不能换仓库或改作另一种产品。
+
+GitHub 仓库更名或转移后，宿主会通过登记地址读取 GitHub API 的当前仓库信息，再核对
+精确 Release 资产地址。登记的模块身份、发布者与历史签名记录保持不变；变更审核身份
+仍需单独审核，不能用任意新仓库替换登记记录。
+
+GitHub-confirmed routing redirects preserve reviewed module identity.
+Publisher/trust changes still require separate review; a changed asset URL
+alone is not proof of a repository transfer.
 
 ### v1 权限
 
