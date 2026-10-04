@@ -57,6 +57,23 @@ through `ui.stateChanged` and `client.ui.subscribeState()`. PNG remains the
 compatible image fallback, and `ui.getState()` remains available for hosts
 that do not push events.
 
+SDK versions, the Workshop API, and module versions are separate. Lumina's
+current host pins SDK 1.0.1 for its own reproducible dependency graph while
+supporting the SDK 1.0.2 extensions above. New modules should pin SDK 1.0.2 and
+declare their tested host/API range in the manifest. For older hosts without
+extension support, omit `svgBytes` and `recommendedTotalThicknessMm` and send only
+base PNG handoff fields; PNG alongside unknown fields is not a fallback. Use
+`ui.getState()` when UI events are unavailable. The offline official bead seed remains 1.0.1;
+the signed catalog also offers the reviewed 1.0.8 update, which users install
+through the normal candidate/update flow.
+
+SDK、协议与模块版本分别管理。当前 Lumina 宿主锁定 SDK 1.0.1，但已支持上述 1.0.2
+扩展；新模块推荐锁定 SDK 1.0.2，并声明实际测试过的宿主兼容范围。支持不认识扩展的旧
+宿主时，应省略 `svgBytes` 和 `recommendedTotalThicknessMm`，只发送基础 PNG 字段；
+同时提供 PNG 不会让旧宿主接受未知字段。没有界面事件时使用 `ui.getState()`。
+官方离线预装拼豆包
+仍为 1.0.1，用户可从签名目录安装已审核的 1.0.8 更新；启动时不会强制升级预装包。
+
 The complete bilingual module-development and packaging guide is published at
 [`docs/module-development.md`](docs/module-development.md).
 
