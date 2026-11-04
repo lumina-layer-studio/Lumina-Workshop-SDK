@@ -169,6 +169,7 @@ export interface WorkshopRpcEventEnvelope {
 export type WorkshopRpcEvent = WorkshopRpcEventEnvelope;
 
 export interface WorkshopReadyMessage {
+  projectSnapshotProtocol?: 1;
   type: "lumina.workshop.ready";
   moduleId: string;
   moduleVersion: string;

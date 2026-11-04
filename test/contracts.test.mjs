@@ -72,6 +72,7 @@ test("connects only after the host transfers one MessagePort", async () => {
     moduleVersion: "1.0.0",
     apiVersion: "1.0.0",
     events: ["ui.stateChanged"],
+    projectSnapshotProtocol: 1,
   });
   assert.equal(client.sessionId, "session-1");
   client.close();
