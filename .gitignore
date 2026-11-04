@@ -1,5 +1,7 @@
 node_modules/
 dist/
 dist-package/
+__pycache__/
+*.pyc
 *.tsbuildinfo
 .DS_Store

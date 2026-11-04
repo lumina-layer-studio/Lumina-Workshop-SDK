@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   WORKSHOP_API_VERSION,
+  WORKSHOP_BACKEND_API_VERSION,
   WORKSHOP_MANIFEST_VERSION,
   WORKSHOP_PERMISSION_NAMES,
   WorkshopClientError,
@@ -668,6 +669,98 @@ test("fails closed when the host sends a duplicate response", async () => {
       error instanceof WorkshopClientError &&
       error.code === "DUPLICATE_RESPONSE",
   );
+  channel.port1.close();
+});
+
+test("requests backend tasks with API 1.1.0 and keeps 1.0.0 otherwise", async () => {
+  const channel = new MessageChannel();
+  const posted = [];
+  const client = await connectWorkshop({
+    moduleId: "fixture.backend",
+    moduleVersion: "1.0.0",
+    features: ["backend.tasks", "not-a-feature"],
+    windowObject: createConnectedWindow(channel, posted),
+  });
+  assert.deepEqual(posted[0], {
+    type: "lumina.workshop.ready",
+    moduleId: "fixture.backend",
+    moduleVersion: "1.0.0",
+    apiVersion: "1.1.0",
+    events: ["ui.stateChanged"],
+    features: ["backend.tasks"],
+  });
+  assert.equal(WORKSHOP_BACKEND_API_VERSION, "1.1.0");
+  assert.ok(client.features.has("backend.tasks"));
+  client.close();
+  channel.port1.close();
+});
+
+test("backend methods require the requested feature", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  await assert.rejects(
+    client.backend.list(),
+    (error) =>
+      error instanceof WorkshopClientError &&
+      error.code === "FEATURE_NOT_REQUESTED",
+  );
+  client.close();
+  channel.port1.close();
+});
+
+test("submits backend inputs by transfer and waits for a terminal task", async () => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.backend",
+    moduleVersion: "1.0.0",
+    features: ["backend.tasks"],
+    windowObject: createConnectedWindow(channel, []),
+  });
+  const received = [];
+  let polls = 0;
+  channel.port1.onmessage = ({ data }) => {
+    received.push(data);
+    let result;
+    if (data.method === "backend.submit") {
+      result = { taskId: "a".repeat(32), status: "queued" };
+    } else if (data.method === "backend.get") {
+      polls += 1;
+      result = {
+        taskId: data.payload.taskId,
+        status: polls < 2 ? "running" : "succeeded",
+        progress: { completed: polls, total: 2, phase: "work" },
+      };
+    }
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result,
+    });
+  };
+  const bytes = new ArrayBuffer(16);
+  const task = await client.backend.submit({
+    operation: "alpha-invert",
+    params: {},
+    inputs: [{ name: "image", fileName: "in.png", mimeType: "image/png", bytes }],
+    idempotencyKey: "upload-1",
+  });
+  assert.equal(bytes.byteLength, 0);
+  assert.equal(received[0].payload.inputs[0].bytes.byteLength, 16);
+  const progress = [];
+  const finished = await client.backend.waitFor(task.taskId, {
+    intervalMs: 1,
+    onProgress: (value) => progress.push(value.status),
+  });
+  assert.equal(finished.status, "succeeded");
+  assert.deepEqual(progress, ["running", "succeeded"]);
+  client.close();
   channel.port1.close();
 });
 

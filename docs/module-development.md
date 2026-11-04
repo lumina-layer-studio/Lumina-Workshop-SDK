@@ -300,6 +300,33 @@ Registry 收录时还会绑定 GitHub 仓库、Release tag、字节数、包摘�
 
 SDK 测试提供最小协议契约；模块自己的识别、编辑、渲染和迁移测试仍留在独立仓库。
 
+## 模块后端（SDK 1.1.0，未发布）/ Module backends (SDK 1.1.0, unreleased)
+
+需要在本机运行 Python 处理时，模块可以声明后端（manifest v2，`workshopApi.min`
+至少 `1.1.0`）。完整契约见 [`backend-protocol.md`](backend-protocol.md)。要点：
+
+- 包内新增 `backend/`：Python 入口和 UTF-8 文本源文件；依赖来自 wheels-only 的
+  PEP 751 `pylock.toml`（带 SHA-256，建议带 `size`）；模型声明 HTTPS 地址、SHA-256、
+  大小与许可，由宿主下载并在模块之间按内容共享。
+- 用户安装后，宿主展示来源、审核等级、声明的能力和预计新增占用；未审核代码还需
+  用户确认风险。准备失败会撤销本次新增内容。
+- 前端用 `connectWorkshop({ features: ["backend.tasks"] })`，通过
+  `client.backend.submit/get/list/cancel/readOutput/waitFor` 管理任务；任务不因
+  页面关闭而取消。
+- 后端用 Python SDK `lumina_workshop_backend`：`@backend.operation(...)` 注册处理函数，
+  `task.progress()` 上报进度，`task.check_cancelled()` 响应取消，`TaskFailure`
+  返回稳定错误码，`task.write_output()` 写出产物；产物通过 `handoff.image` 交给
+  Lumina 前先由模块读取。
+- 可选加速（例如 GPU）声明为变体锁，只在用户开启时准备，失败回退 CPU。
+
+Backend modules declare manifest v2 and `workshopApi.min >= 1.1.0`. The host
+shows source, review level, declared capabilities, and the expected footprint
+before consent, prepares hash-locked dependencies transactionally, owns tasks
+that survive page switches, and reclaims unused dependencies by reference.
+Use `features: ["backend.tasks"]` in `connectWorkshop` and the Python SDK
+`lumina_workshop_backend` for the backend. These contracts ship with SDK
+1.1.0, which is not published until its tagged Release exists.
+
 ## 发布前检查
 
 ```bash

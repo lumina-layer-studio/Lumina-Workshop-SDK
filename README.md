@@ -42,10 +42,45 @@ artifact remains reviewable.
 
 ## Package contract
 
-- API version: `1.0.0`
-- Manifest version: `1`
+- API version: `1.0.0` (frontend-only modules); `1.1.0` adds module backends
+- Manifest version: `1`; backend modules use manifest `2`
 - UI entry point: `ui/index.html`
 - Runtime transport: a host-provided `MessagePort`
+
+## SDK 1.1.0: module backends (unreleased)
+
+This source prepares SDK `1.1.0`. It is **not published yet**: until the
+protected Release workflow runs for tag `v1.1.0`, the latest public release
+remains `v1.0.2` above. When published, the release will contain
+`lumina-workshop-sdk-1.1.0.tgz` and the Python backend SDK
+`lumina_workshop_backend-1.1.0-py3-none-any.whl`, each with a `.sha256` file.
+
+SDK 1.1.0 lets a module declare a host-managed backend (manifest v2): a
+Python entry, a wheels-only PEP 751 `pylock.toml`, optional hash-pinned
+models, and optional acceleration variants. The host prepares environments
+after user consent, starts the backend only for submitted tasks, owns tasks
+and their files, and reclaims unused dependencies by reference.
+
+```ts
+const host = await connectWorkshop({
+  moduleId: "studio.lumina.example",
+  moduleVersion: "1.0.0",
+  features: ["backend.tasks"],
+});
+const task = await host.backend.submit({ operation: "invert-alpha", params: {}, inputs });
+const finished = await host.backend.waitFor(task.taskId);
+```
+
+Only modules that request `backend.tasks` report API `1.1.0`; others keep
+reporting `1.0.0` so they still work on older hosts. Backends run as local
+processes with the user's permissions; declared capabilities explain intent
+and are not an OS sandbox. See [`docs/backend-protocol.md`](docs/backend-protocol.md)
+and [`python/README.md`](python/README.md).
+
+SDK 1.1.0 尚未发布：在受保护的 Release 工作流为 `v1.1.0` 发布资产之前，最新公开版本
+仍是上面的 `v1.0.2`。1.1.0 新增模块后端（manifest v2）、`backend.tasks` 握手能力和
+Python 后端 SDK；只请求该能力的模块才上报 API `1.1.0`。后端以用户权限在本机进程中
+运行，声明的能力只用于说明用途，不是系统级沙箱。
 
 The module manifest must declare every requested permission and explain why it
 is needed. Lumina Studio remains responsible for user confirmation, storage
