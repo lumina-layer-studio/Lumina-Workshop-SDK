@@ -764,6 +764,129 @@ test("submits backend inputs by transfer and waits for a terminal task", async (
   channel.port1.close();
 });
 
+test("transfers a buffer shared by several backend inputs once", async (t) => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.backend",
+    moduleVersion: "1.0.0",
+    features: ["backend.tasks"],
+    windowObject: createConnectedWindow(channel, []),
+  });
+  // An open port keeps the test process alive; close it even on failure.
+  t.after(() => {
+    client.close();
+    channel.port1.close();
+  });
+  let received;
+  channel.port1.onmessage = ({ data }) => {
+    received = data;
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: { taskId: "a".repeat(32), status: "queued" },
+    });
+  };
+  const bytes = new ArrayBuffer(16);
+  const task = await client.backend.submit({
+    operation: "compare",
+    params: {},
+    inputs: [
+      { name: "left", fileName: "image.png", mimeType: "image/png", bytes },
+      { name: "right", fileName: "image.png", mimeType: "image/png", bytes },
+    ],
+  });
+  assert.equal(task.status, "queued");
+  assert.equal(bytes.byteLength, 0);
+  const [left, right] = received.payload.inputs;
+  assert.equal(left.bytes.byteLength, 16);
+  assert.equal(left.bytes, right.bytes);
+});
+
+// A host whose backend.get answers after `delayMs` with "running" until
+// poll `finishOnPoll`; `answered` lists when each answer was sent.
+async function connectPollingHost(t) {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.backend",
+    moduleVersion: "1.0.0",
+    features: ["backend.tasks"],
+    windowObject: createConnectedWindow(channel, []),
+  });
+  const host = { polls: 0, finishOnPoll: Infinity, delayMs: 0, answered: [] };
+  const timers = new Set();
+  // An open port or timer keeps the test process alive; clear them even on failure.
+  t.after(() => {
+    timers.forEach(clearTimeout);
+    client.close();
+    channel.port1.close();
+  });
+  channel.port1.onmessage = ({ data }) => {
+    host.polls += 1;
+    const status = host.polls >= host.finishOnPoll ? "succeeded" : "running";
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      channel.port1.postMessage({
+        protocol: "lumina-workshop-rpc",
+        version: 1,
+        kind: "response",
+        requestId: data.requestId,
+        ok: true,
+        result: { taskId: data.payload.taskId, status },
+      });
+      host.answered.push(Date.now());
+    }, host.delayMs);
+    timers.add(timer);
+  };
+  return { client, host };
+}
+
+const isWaitTimeout = (error) =>
+  error instanceof WorkshopClientError && error.code === "WAIT_TIMEOUT" && error.retryable;
+
+test("waitFor ends at its time limit even when the interval is longer", async (t) => {
+  const { client, host } = await connectPollingHost(t);
+  let started = Date.now();
+  await assert.rejects(
+    client.backend.waitFor("a".repeat(32), { timeoutMs: 100, intervalMs: 2_000 }),
+    isWaitTimeout,
+  );
+  assert.ok(Date.now() - started < 1_000, `waited ${Date.now() - started} ms`);
+
+  // A task that ends within the limit is returned.
+  host.polls = 0;
+  host.finishOnPoll = 3;
+  started = Date.now();
+  const finished = await client.backend.waitFor("a".repeat(32), {
+    timeoutMs: 1_000,
+    intervalMs: 20,
+  });
+  assert.equal(finished.status, "succeeded");
+  assert.ok(Date.now() - started < 1_000, `waited ${Date.now() - started} ms`);
+});
+
+test("waitFor does not outlast its time limit for a slow status request", async (t) => {
+  const { client, host } = await connectPollingHost(t);
+  host.delayMs = 1_000;
+  host.finishOnPoll = 1;
+  const started = Date.now();
+  await assert.rejects(
+    client.backend.waitFor("a".repeat(32), { timeoutMs: 100, intervalMs: 20 }),
+    isWaitTimeout,
+  );
+  assert.ok(Date.now() - started < 700, `waited ${Date.now() - started} ms`);
+
+  // The late answer is discarded and the connection keeps working.
+  while (host.answered.length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  host.delayMs = 0;
+  const task = await client.backend.get("a".repeat(32));
+  assert.equal(task.status, "succeeded");
+});
+
 test("applies only public Lumina theme tokens", () => {
   const values = new Map();
   const root = {

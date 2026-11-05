@@ -66,7 +66,15 @@ export interface ConnectWorkshopOptions {
 }
 
 export interface WorkshopWaitOptions {
+  /** Pause between status requests; 500 ms by default. */
   intervalMs?: number;
+  /**
+   * Limit for the whole wait, status requests included. Once it has passed,
+   * `waitFor` rejects with the retryable `WAIT_TIMEOUT` error instead of
+   * starting or awaiting another request. The task is not cancelled: read it
+   * again later with `get` or `waitFor`. Without a limit the wait continues
+   * until the task ends, and each request has the normal RPC timeout.
+   */
   timeoutMs?: number;
   onProgress?(task: WorkshopBackendTask): void;
 }
@@ -376,7 +384,8 @@ class PortWorkshopClient implements WorkshopClient {
         backendRequest<WorkshopBackendTask>(
           "backend.submit",
           request,
-          request.inputs.map((input) => input.bytes),
+          // Inputs may share one buffer; a transfer list must name it once.
+          [...new Set(request.inputs.map((input) => input.bytes))],
           HANDOFF_REQUEST_TIMEOUT_MS,
         ),
       get,
@@ -396,20 +405,47 @@ class PortWorkshopClient implements WorkshopClient {
         const interval = options.intervalMs ?? 500;
         const deadline =
           options.timeoutMs === undefined ? Infinity : Date.now() + options.timeoutMs;
+        const stillRunning = () =>
+          new WorkshopClientError(
+            "WAIT_TIMEOUT",
+            "The backend task is still running.",
+            true,
+          );
         for (;;) {
-          const task = await get(taskId);
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) {
+            throw stillRunning();
+          }
+          // A status request may use only what is left of the wait limit.
+          const limited = remaining < DEFAULT_REQUEST_TIMEOUT_MS;
+          let task: WorkshopBackendTask;
+          try {
+            task = await backendRequest<WorkshopBackendTask>(
+              "backend.get",
+              { taskId },
+              [],
+              limited ? remaining : DEFAULT_REQUEST_TIMEOUT_MS,
+            );
+          } catch (error) {
+            if (
+              limited &&
+              error instanceof WorkshopClientError &&
+              error.code === "REQUEST_TIMEOUT"
+            ) {
+              throw stillRunning();
+            }
+            throw error;
+          }
           options.onProgress?.(task);
           if (BACKEND_TERMINAL_STATUSES.has(task.status)) {
             return task;
           }
-          if (Date.now() >= deadline) {
-            throw new WorkshopClientError(
-              "WAIT_TIMEOUT",
-              "The backend task is still running.",
-              true,
-            );
-          }
-          await new Promise((resolve) => setTimeout(resolve, interval));
+          await new Promise((resolve) =>
+            setTimeout(
+              resolve,
+              Math.max(0, Math.min(interval, deadline - Date.now())),
+            ),
+          );
         }
       },
     };

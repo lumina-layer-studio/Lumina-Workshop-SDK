@@ -115,6 +115,28 @@ class InProcessTests(unittest.TestCase):
             self.assertEqual(len(cancelled.progress), 1)
             self.assertEqual(run_operation(backend, "missing", work_root=Path(root) / "e").error_code, "unknown-operation")
 
+    def test_inputs_with_the_same_file_name_stay_distinct(self) -> None:
+        backend = Backend()
+
+        @backend.operation("pair")
+        def pair(task: TaskContext) -> None:
+            left, right = task.inputs["left"], task.inputs["right"]
+            self.assertEqual((left.file_name, right.file_name), ("image.png", "image.png"))
+            task.write_output("pair", "pair.bin", "application/octet-stream", left.read_bytes() + b"|" + right.read_bytes())
+
+        with tempfile.TemporaryDirectory() as root:
+            done = run_operation(
+                backend,
+                "pair",
+                inputs={
+                    "left": (b"first", "image.png", "image/png"),
+                    "right": (b"second", "image.png", "image/png"),
+                },
+                work_root=Path(root),
+            )
+            self.assertEqual(done.status, "succeeded", done.error_code)
+            self.assertEqual(done.outputs["pair"].read_bytes(), b"first|second")
+
     def test_names_and_codes_are_validated(self) -> None:
         backend = Backend()
         with self.assertRaises(ValueError):

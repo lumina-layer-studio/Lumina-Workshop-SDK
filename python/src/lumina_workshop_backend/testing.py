@@ -51,8 +51,10 @@ def run_operation(
             backend._cancelled.add(task_id)  # noqa: SLF001 - simulate the host
 
     run_inputs = []
-    for name, (data, file_name, mime_type) in (inputs or {}).items():
-        path = root / "inputs" / file_name
+    for index, (name, (data, file_name, mime_type)) in enumerate((inputs or {}).items()):
+        # Like the host: one folder per input keeps equal file names apart.
+        path = root / "inputs" / f"{index:02d}" / file_name
+        path.parent.mkdir(exist_ok=True)
         path.write_bytes(data)
         run_inputs.append({"name": name, "path": str(path), "fileName": file_name, "mimeType": mime_type})
     backend.run_task(
