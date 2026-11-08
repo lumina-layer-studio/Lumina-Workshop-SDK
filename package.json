@@ -1,6 +1,6 @@
 {
   "name": "@lumina/workshop-sdk",
-  "version": "1.1.0-dev.0",
+  "version": "1.1.0",
   "description": "Public SDK contracts for Lumina Studio Creative Workshop modules",
   "license": "GPL-3.0-or-later",
   "repository": {
@@ -28,7 +28,6 @@
     }
   },
   "scripts": {
-    "prepare": "tsc -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
     "test": "pnpm run build && node --test test/*.test.mjs",
     "pack:release": "pnpm run test && pnpm pack --pack-destination dist-package"

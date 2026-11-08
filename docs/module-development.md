@@ -22,10 +22,10 @@ frame 拦截网络、WebSocket、跳转、弹窗、权限和下载。普通浏�
 公开 SDK 的稳定身份是：
 
 - npm 包名：`@lumina/workshop-sdk`
-- 版本：`1.0.2`
-- GitHub Release tag：`v1.0.2`
-- 资产：`lumina-workshop-sdk-1.0.2.tgz`
-- 校验文件：`lumina-workshop-sdk-1.0.2.tgz.sha256`
+- 版本：`1.1.0`
+- GitHub Release tag：`v1.1.0`
+- 资产：`lumina-workshop-sdk-1.1.0.tgz`
+- 校验文件：`lumina-workshop-sdk-1.1.0.tgz.sha256`
 
 SDK 只通过公开 `Lumina-Workshop-SDK` 仓库的不可变 GitHub Release 分发，不发布
 可变 `latest` 资产，也不发布到 npm registry。模块应直接锁定精确 Release URL：
@@ -33,7 +33,7 @@ SDK 只通过公开 `Lumina-Workshop-SDK` 仓库的不可变 GitHub Release 分�
 ```json
 {
   "dependencies": {
-    "@lumina/workshop-sdk": "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.0.2/lumina-workshop-sdk-1.0.2.tgz"
+    "@lumina/workshop-sdk": "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.1.0/lumina-workshop-sdk-1.1.0.tgz"
   }
 }
 ```
@@ -42,18 +42,27 @@ Release 同时提供小写 SHA-256 校验文件；macOS 可用 `shasum -a 256 -c
 模块仓库必须提交 `pnpm-lock.yaml`，CI 使用 `pnpm install --frozen-lockfile`。
 不要依赖 Lumina 工作区中的 `workspace:*` 路径或未发布的 SDK 源码。
 
+SDK 1.1.0 追加的可选 `client.projectSnapshots` 工程快照握手见仓库 `README.md`
+的对应段落；不声明 `projectSnapshots` 的模块行为与 1.0.2 完全一致。
+
+The optional `client.projectSnapshots` handshake added in SDK 1.1.0 is
+documented in `README.md`; modules that do not declare `projectSnapshots`
+behave exactly as they do with 1.0.2.
+
 ### 版本兼容与预装包 / Compatibility and bundled modules
 
 | 项目 / Item | 版本 / Version | 含义 / Meaning |
 | --- | --- | --- |
 | 当前宿主的 SDK 依赖 / Host SDK dependency | `1.0.1` | 宿主的固定依赖，不是模块 SDK 的版本要求 / Host pin, not a module SDK requirement |
-| 推荐的模块 SDK / Recommended module SDK | `1.0.2` | 新模块使用精确 Release / Pin the exact release for new modules |
+| 推荐的模块 SDK / Recommended module SDK | `1.1.0` | 新模块锁定精确 Release；工程快照为可选能力 / Pin the exact release; project snapshots are optional |
 | Workshop API / Manifest | `1.0.0` / `1` | 两个 SDK 版本共用 / Shared by both SDK releases |
 | 官方离线预装拼豆包 / Offline bead seed | `1.0.1` | 首次安装与离线恢复 / First installation and offline recovery |
 | 已审核的在线拼豆更新 / Reviewed bead update | `1.0.8` | 用户从签名目录安装 / User-installed catalog update |
 
 SDK 包、协议和模块版本分别管理。当前宿主已支持 SDK 1.0.2 的可选 SVG、厚度和界面
-事件扩展，虽然宿主自身仍锁定 SDK 1.0.1。面向不支持扩展的旧宿主时，应省略
+事件扩展，虽然宿主自身仍锁定 SDK 1.0.1。SDK 1.1.0 在其上追加可选的
+`client.projectSnapshots` 工程快照握手；宿主未广告该能力时，行为与 1.0.2 相同。
+面向不支持扩展的旧宿主时，应省略
 `svgBytes` 和 `recommendedTotalThicknessMm`，只发送基础 PNG 交接字段；同时提供
 PNG 不会让旧宿主接受未知字段。只面向支持扩展的宿主时，应声明并测试对应宿主范围。
 没有界面事件时使用 `ui.getState()`。在 manifest 中声明实际测试过的 `workshopApi`
@@ -61,6 +70,8 @@ PNG 不会让旧宿主接受未知字段。只面向支持扩展的宿主时，�
 
 SDK, API, and module versions are independent. The current host supports the
 optional SDK 1.0.2 extensions while retaining its own SDK 1.0.1 dependency pin.
+SDK 1.1.0 adds the optional `client.projectSnapshots` handshake on top of them;
+hosts that do not advertise the capability behave exactly as they do for 1.0.2.
 For older hosts without extension support, omit `svgBytes` and
 `recommendedTotalThicknessMm` and send only base PNG handoff fields; PNG alongside
 unknown fields is not a fallback. Alternatively, require a tested host range that

@@ -65,6 +65,8 @@ jobs:
             package/dist/contracts.js \
             package/dist/index.d.ts \
             package/dist/index.js \
+            package/dist/projectSnapshots.d.ts \
+            package/dist/projectSnapshots.js \
             package/dist/theme.d.ts \
             package/dist/theme.js \
             package/package.json \

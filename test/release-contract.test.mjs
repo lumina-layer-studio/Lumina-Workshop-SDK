@@ -10,20 +10,15 @@ const readText = (path) =>
 
 test("publishes an exact dependency-free public package identity", () => {
   assert.equal(packageValue.name, "@lumina/workshop-sdk");
-  assert.equal(packageValue.version, "1.1.0-dev.0");
+  assert.equal(packageValue.version, "1.1.0");
   assert.equal(packageValue.packageManager, "pnpm@10.33.2");
   assert.equal(packageValue.engines.node, ">=22");
   assert.deepEqual(packageValue.files, ["dist", "README.md", "LICENSE"]);
   assert.equal(packageValue.dependencies, undefined);
   assert.equal(packageValue.peerDependencies, undefined);
-  for (const name of [
-    "preinstall",
-    "install",
-    "postinstall",
-  ]) {
+  for (const name of ["preinstall", "install", "postinstall", "prepare"]) {
     assert.equal(packageValue.scripts[name], undefined);
   }
-  assert.equal(packageValue.scripts.prepare, "tsc -p tsconfig.json");
 });
 
 test("release workflow is tag-only, pinned, and immutable", async () => {
@@ -52,21 +47,21 @@ test("documentation points only to the public immutable release", async () => {
   const readme = await readText("../README.md");
   const publicAsset =
     "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/" +
-    "releases/download/v1.0.2/lumina-workshop-sdk-1.0.2.tgz";
+    "releases/download/v1.1.0/lumina-workshop-sdk-1.1.0.tgz";
   assert.match(readme, new RegExp(publicAsset.replaceAll(".", "\\.")));
   assert.doesNotMatch(readme, /v1\.0\.1|sdk-1\.0\.1/);
   assert.doesNotMatch(readme, /Lumina-studio\/releases/);
   assert.doesNotMatch(readme, /\/latest\//);
 });
 
-test("all immutable dependency examples use the 1.0.2 release identity", async () => {
+test("all immutable dependency examples use the 1.1.0 release identity", async () => {
   const documentation = [
     await readText("../README.md"),
     await readText("../docs/module-development.md"),
   ].join("\n");
 
-  assert.match(documentation, /版本：`1\.0\.2`/);
-  assert.match(documentation, /tag：`v1\.0\.2`/);
+  assert.match(documentation, /版本：`1\.1\.0`/);
+  assert.match(documentation, /tag：`v1\.1\.0`/);
   assert.doesNotMatch(documentation, /v1\.0\.1|sdk-1\.0\.1/);
 });
 
@@ -74,7 +69,7 @@ test("release identity guard accepts exactly the package version tag", async () 
   const workflow = await readText("../.github/workflows/release.yml");
   const expectedTag = `v${packageValue.version}`;
 
-  assert.equal(expectedTag, "v1.1.0-dev.0");
+  assert.equal(expectedTag, "v1.1.0");
   assert.match(workflow, /EXPECTED_TAG="v\$\{SDK_VERSION\}"/);
   assert.match(workflow, /GITHUB_REF_NAME.*EXPECTED_TAG/);
 });
@@ -92,5 +87,44 @@ test("1.0.2 documentation covers its new public contracts", async () => {
     "ui.stateChanged",
   ]) {
     assert.match(documentation, new RegExp(publicContract.replace(".", "\\.")));
+  }
+});
+
+test("both workflows enumerate the same exact package surface", async () => {
+  const members = async (path) =>
+    (await readText(path))
+      .split("\n")
+      .map((line) => line.match(/^\s+(package\/[A-Za-z0-9._/-]+)\s*\\?$/)?.[1])
+      .filter(Boolean)
+      .sort();
+
+  const releaseMembers = await members("../.github/workflows/release.yml");
+  const ciMembers = await members("../.github/workflows/ci.yml");
+
+  assert.ok(releaseMembers.length > 0);
+  assert.deepEqual(releaseMembers, ciMembers);
+  for (const member of [
+    "package/dist/projectSnapshots.d.ts",
+    "package/dist/projectSnapshots.js",
+  ]) {
+    assert.ok(releaseMembers.includes(member), `missing ${member}`);
+  }
+});
+
+test("1.1.0 documentation covers the snapshot contract", async () => {
+  const documentation = [
+    await readText("../README.md"),
+    await readText("../docs/module-development.md"),
+  ].join("\n");
+
+  for (const publicContract of [
+    "client.projectSnapshots",
+    "projectSnapshots.register",
+    "projectSnapshots.changed",
+  ]) {
+    assert.match(
+      documentation,
+      new RegExp(publicContract.replace(".", "\\.")),
+    );
   }
 });
