@@ -8,12 +8,14 @@ files or call private APIs. Instead, they connect through the SDK and request
 explicit capabilities such as image selection, project storage, the current
 color library, and image handoff.
 
-## Current workspace snapshots (unreleased)
+## Current workspace snapshots (`client.projectSnapshots`)
 
-The unreleased `1.1.0` source also adds `client.projectSnapshots`.
-This source change does not publish a release. Companion modules can test an
-immutable Git commit; its `prepare` script only compiles the TypeScript sources.
-The release installation instructions below still describe the published SDK.
+SDK 1.1.0 adds `client.projectSnapshots`, a live project snapshot protocol on
+top of the 1.0.2 contracts. It ships as the immutable `v1.1.0` release asset, so
+the installation section below pins that exact tarball.
+
+Git-commit installs remain supported for development; the source `prepare`
+script compiles TypeScript, while the published tarball has no install scripts.
 
 Declare `"projectSnapshots": {"protocol": 1, "schemas": ["my-editor/v1"]}`
 alongside the `project.storage` permission in the module manifest. Register a
@@ -38,24 +40,24 @@ declared schema. Older hosts ignore the optional handshake capability and keep
 using the existing storage and handoff RPC methods.
 
 当前工程快照包含尚未自动保存的编辑状态。模块先校验，再提交；宿主只保存数据，
-不会从工程文件安装或执行模块。此改动尚未发布，正式 SDK 下载地址保持原版本。
+不会从工程文件安装或执行模块。该能力随 v1.1.0 的不可变资产发布；不支持该可选握手的旧宿主继续使用既有存储与交接 RPC。
 
-## Install the immutable v1 release
+## Install the immutable release (v1.1.0)
 
 Lumina publishes the SDK only as a versioned GitHub Release asset. Verify the
 checksum before adding the exact tarball URL to a module:
 
 ```text
-https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.0.2/lumina-workshop-sdk-1.0.2.tgz
+https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.1.0/lumina-workshop-sdk-1.1.0.tgz
 ```
 
 ```bash
-gh release download v1.0.2 \
+gh release download v1.1.0 \
   --repo lumina-layer-studio/Lumina-Workshop-SDK \
-  --pattern "lumina-workshop-sdk-1.0.2.tgz*" \
+  --pattern "lumina-workshop-sdk-1.1.0.tgz*" \
   --dir .workshop-sdk-release
 cd .workshop-sdk-release
-shasum -a 256 -c lumina-workshop-sdk-1.0.2.tgz.sha256
+shasum -a 256 -c lumina-workshop-sdk-1.1.0.tgz.sha256
 ```
 
 Pin that exact immutable asset in `package.json`:
@@ -63,7 +65,7 @@ Pin that exact immutable asset in `package.json`:
 ```json
 {
   "dependencies": {
-    "@lumina/workshop-sdk": "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.0.2/lumina-workshop-sdk-1.0.2.tgz"
+    "@lumina/workshop-sdk": "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.1.0/lumina-workshop-sdk-1.1.0.tgz"
   }
 }
 ```
@@ -79,11 +81,9 @@ artifact remains reviewable.
 - UI entry point: `ui/index.html`
 - Runtime transport: a host-provided `MessagePort`
 
-## SDK 1.1.0: module backends (unreleased)
+## SDK 1.1.0: module backends
 
-This source prepares SDK `1.1.0`. It is **not published yet**: until the
-protected Release workflow runs for tag `v1.1.0`, the latest public release
-remains `v1.0.2` above. When published, the release will contain
+The `v1.1.0` Release contains both the JavaScript SDK
 `lumina-workshop-sdk-1.1.0.tgz` and the Python backend SDK
 `lumina_workshop_backend-1.1.0-py3-none-any.whl`, each with a `.sha256` file.
 
@@ -109,9 +109,9 @@ processes with the user's permissions; declared capabilities explain intent
 and are not an OS sandbox. See [`docs/backend-protocol.md`](docs/backend-protocol.md)
 and [`python/README.md`](python/README.md).
 
-SDK 1.1.0 尚未发布：在受保护的 Release 工作流为 `v1.1.0` 发布资产之前，最新公开版本
-仍是上面的 `v1.0.2`。1.1.0 新增模块后端（manifest v2）、`backend.tasks` 握手能力和
-Python 后端 SDK；只请求该能力的模块才上报 API `1.1.0`。后端以用户权限在本机进程中
+SDK 1.1.0 的 `v1.1.0` Release 同时提供 JS 包、Python wheel 及各自的校验文件。
+1.1.0 新增模块后端（manifest v2）、`backend.tasks` 握手能力和 Python 后端 SDK；
+只请求该能力的模块才上报 API `1.1.0`。后端以用户权限在本机进程中
 运行，声明的能力只用于说明用途，不是系统级沙箱。
 
 The module manifest must declare every requested permission and explain why it
@@ -124,9 +124,14 @@ through `ui.stateChanged` and `client.ui.subscribeState()`. PNG remains the
 compatible image fallback, and `ui.getState()` remains available for hosts
 that do not push events.
 
+SDK 1.1.0 adds `client.projectSnapshots` for live project snapshots and
+transactional restore, without removing any 1.0.2 contract. Snapshots are
+optional; frontend-only modules that do not request `backend.tasks` keep
+reporting Workshop API `1.0.0`.
+
 SDK versions, the Workshop API, and module versions are separate. Lumina's
 current host pins SDK 1.0.1 for its own reproducible dependency graph while
-supporting the SDK 1.0.2 extensions above. New modules should pin SDK 1.0.2 and
+supporting the SDK 1.0.2 extensions above. New modules should pin SDK 1.1.0 and
 declare their tested host/API range in the manifest. For older hosts without
 extension support, omit `svgBytes` and `recommendedTotalThicknessMm` and send only
 base PNG handoff fields; PNG alongside unknown fields is not a fallback. Use
@@ -135,7 +140,7 @@ the signed catalog also offers the reviewed 1.0.8 update, which users install
 through the normal candidate/update flow.
 
 SDK、协议与模块版本分别管理。当前 Lumina 宿主锁定 SDK 1.0.1，但已支持上述 1.0.2
-扩展；新模块推荐锁定 SDK 1.0.2，并声明实际测试过的宿主兼容范围。支持不认识扩展的旧
+扩展，并在支持工程快照的宿主上提供 1.1.0 的可选握手；新模块推荐锁定 SDK 1.1.0，并声明实际测试过的宿主兼容范围。支持不认识扩展的旧
 宿主时，应省略 `svgBytes` 和 `recommendedTotalThicknessMm`，只发送基础 PNG 字段；
 同时提供 PNG 不会让旧宿主接受未知字段。没有界面事件时使用 `ui.getState()`。
 官方离线预装拼豆包

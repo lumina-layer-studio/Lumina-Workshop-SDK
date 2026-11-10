@@ -22,10 +22,10 @@ frame 拦截网络、WebSocket、跳转、弹窗、权限和下载。普通浏�
 公开 SDK 的稳定身份是：
 
 - npm 包名：`@lumina/workshop-sdk`
-- 版本：`1.0.2`
-- GitHub Release tag：`v1.0.2`
-- 资产：`lumina-workshop-sdk-1.0.2.tgz`
-- 校验文件：`lumina-workshop-sdk-1.0.2.tgz.sha256`
+- 版本：`1.1.0`
+- GitHub Release tag：`v1.1.0`
+- 资产：`lumina-workshop-sdk-1.1.0.tgz`
+- 校验文件：`lumina-workshop-sdk-1.1.0.tgz.sha256`
 
 SDK 只通过公开 `Lumina-Workshop-SDK` 仓库的不可变 GitHub Release 分发，不发布
 可变 `latest` 资产，也不发布到 npm registry。模块应直接锁定精确 Release URL：
@@ -33,7 +33,7 @@ SDK 只通过公开 `Lumina-Workshop-SDK` 仓库的不可变 GitHub Release 分�
 ```json
 {
   "dependencies": {
-    "@lumina/workshop-sdk": "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.0.2/lumina-workshop-sdk-1.0.2.tgz"
+    "@lumina/workshop-sdk": "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.1.0/lumina-workshop-sdk-1.1.0.tgz"
   }
 }
 ```
@@ -42,18 +42,29 @@ Release 同时提供小写 SHA-256 校验文件；macOS 可用 `shasum -a 256 -c
 模块仓库必须提交 `pnpm-lock.yaml`，CI 使用 `pnpm install --frozen-lockfile`。
 不要依赖 Lumina 工作区中的 `workspace:*` 路径或未发布的 SDK 源码。
 
+SDK 1.1.0 追加的可选 `client.projectSnapshots` 工程快照握手见仓库 `README.md`
+的对应段落；纯前端模块不请求 `backend.tasks` 时仍使用 API 1.0.0。
+
+The optional `client.projectSnapshots` handshake added in SDK 1.1.0 is
+documented in `README.md`; frontend-only modules that do not request
+`backend.tasks` keep using API 1.0.0.
+
 ### 版本兼容与预装包 / Compatibility and bundled modules
 
 | 项目 / Item | 版本 / Version | 含义 / Meaning |
 | --- | --- | --- |
 | 当前宿主的 SDK 依赖 / Host SDK dependency | `1.0.1` | 宿主的固定依赖，不是模块 SDK 的版本要求 / Host pin, not a module SDK requirement |
-| 推荐的模块 SDK / Recommended module SDK | `1.0.2` | 新模块使用精确 Release / Pin the exact release for new modules |
-| Workshop API / Manifest | `1.0.0` / `1` | 两个 SDK 版本共用 / Shared by both SDK releases |
+| 推荐的模块 SDK / Recommended module SDK | `1.1.0` | 新模块锁定精确 Release；工程快照为可选能力 / Pin the exact release; project snapshots are optional |
+| 纯前端 API / Manifest | `1.0.0` / `1` | 保留原有兼容性 / Existing frontend compatibility |
+| 后端 API / Manifest | `1.1.0` / `2` | 仅声明后端能力的模块使用 / Modules declaring backend capability only |
 | 官方离线预装拼豆包 / Offline bead seed | `1.0.1` | 首次安装与离线恢复 / First installation and offline recovery |
 | 已审核的在线拼豆更新 / Reviewed bead update | `1.0.8` | 用户从签名目录安装 / User-installed catalog update |
 
 SDK 包、协议和模块版本分别管理。当前宿主已支持 SDK 1.0.2 的可选 SVG、厚度和界面
-事件扩展，虽然宿主自身仍锁定 SDK 1.0.1。面向不支持扩展的旧宿主时，应省略
+事件扩展，虽然宿主自身仍锁定 SDK 1.0.1。SDK 1.1.0 在其上追加可选的
+`client.projectSnapshots` 工程快照握手；不请求后端能力的模块仍上报 API 1.0.0，
+需要后端的模块声明 API 1.1.0 与 manifest v2。
+面向不支持扩展的旧宿主时，应省略
 `svgBytes` 和 `recommendedTotalThicknessMm`，只发送基础 PNG 交接字段；同时提供
 PNG 不会让旧宿主接受未知字段。只面向支持扩展的宿主时，应声明并测试对应宿主范围。
 没有界面事件时使用 `ui.getState()`。在 manifest 中声明实际测试过的 `workshopApi`
@@ -61,6 +72,9 @@ PNG 不会让旧宿主接受未知字段。只面向支持扩展的宿主时，�
 
 SDK, API, and module versions are independent. The current host supports the
 optional SDK 1.0.2 extensions while retaining its own SDK 1.0.1 dependency pin.
+SDK 1.1.0 adds the optional `client.projectSnapshots` handshake on top of them.
+Modules without backend tasks still report API 1.0.0; backend modules require
+API 1.1.0 and manifest v2.
 For older hosts without extension support, omit `svgBytes` and
 `recommendedTotalThicknessMm` and send only base PNG handoff fields; PNG alongside
 unknown fields is not a fallback. Alternatively, require a tested host range that
@@ -300,7 +314,7 @@ Registry 收录时还会绑定 GitHub 仓库、Release tag、字节数、包摘�
 
 SDK 测试提供最小协议契约；模块自己的识别、编辑、渲染和迁移测试仍留在独立仓库。
 
-## 模块后端（SDK 1.1.0，未发布）/ Module backends (SDK 1.1.0, unreleased)
+## 模块后端（SDK 1.1.0）/ Module backends (SDK 1.1.0)
 
 需要在本机运行 Python 处理时，模块可以声明后端（manifest v2，`workshopApi.min`
 至少 `1.1.0`）。完整契约见 [`backend-protocol.md`](backend-protocol.md)。要点：
@@ -324,8 +338,8 @@ shows source, review level, declared capabilities, and the expected footprint
 before consent, prepares hash-locked dependencies transactionally, owns tasks
 that survive page switches, and reclaims unused dependencies by reference.
 Use `features: ["backend.tasks"]` in `connectWorkshop` and the Python SDK
-`lumina_workshop_backend` for the backend. These contracts ship with SDK
-1.1.0, which is not published until its tagged Release exists.
+`lumina_workshop_backend` for the backend. SDK 1.1.0 ships both the JS tarball
+and Python wheel in the same `v1.1.0` Release, each with a SHA-256 file.
 
 ## 发布前检查
 
