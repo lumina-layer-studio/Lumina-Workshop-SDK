@@ -69,9 +69,11 @@ this SDK, never on Lumina Studio source.
 ## SDK 版本与分发 / SDK delivery
 
 Python SDK `lumina-workshop-backend` 与 JS SDK 一样只通过本仓库的不可变 GitHub
-Release 发布（无 PyPI）。模块可以把校验过的 wheel 内容放进 `backend/`
-（`backend/lumina_workshop_backend/`），也可以在锁中引用该 Release wheel 的
-HTTPS 地址与 SHA-256。
+Release 发布（无 PyPI）。推荐在锁中引用该 Release wheel 的 HTTPS 地址与 SHA-256。
+如需随模块附带源码，只复制校验过的 wheel 中 `lumina_workshop_backend/` 的 `.py`
+文件到 `backend/lumina_workshop_backend/`，并把 wheel 内的完整许可证保留为
+`backend/lumina_workshop_backend/LICENSE.txt`。不要复制 `py.typed`、`__pycache__`
+或 `.dist-info`；这些不是模块包允许的后端文本源文件。
 
 ## 启动契约 / Launch contract
 
