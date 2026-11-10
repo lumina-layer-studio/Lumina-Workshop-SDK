@@ -16,9 +16,10 @@ test("publishes an exact dependency-free public package identity", () => {
   assert.deepEqual(packageValue.files, ["dist", "README.md", "LICENSE"]);
   assert.equal(packageValue.dependencies, undefined);
   assert.equal(packageValue.peerDependencies, undefined);
-  for (const name of ["preinstall", "install", "postinstall", "prepare"]) {
+  for (const name of ["preinstall", "install", "postinstall"]) {
     assert.equal(packageValue.scripts[name], undefined);
   }
+  assert.equal(packageValue.scripts.prepare, "tsc -p tsconfig.json");
 });
 
 test("release workflow is tag-only, pinned, and immutable", async () => {
@@ -41,6 +42,32 @@ test("release workflow is tag-only, pinned, and immutable", async () => {
   assert.doesNotMatch(workflow, /npm publish/);
   assert.doesNotMatch(workflow, /--latest/);
   assert.doesNotMatch(workflow.toLowerCase(), /\/latest\//);
+  // The Python backend SDK is tested, built once, and released beside it.
+  assert.match(workflow, /python3 -m unittest discover -s python\/tests/);
+  assert.match(workflow, /python3 python\/build_wheel\.py --output dist-package/);
+  assert.match(workflow, /"\$\{wheel\}\.sha256"/);
+  assert.doesNotMatch(workflow, /twine|pypi/i);
+});
+
+test("release inspects the same packed files as CI and the packed manifest", async () => {
+  const members = async (path) =>
+    (await readText(path)).split("\n")
+      .map((line) => line.match(/^\s+(package\/[A-Za-z0-9._/-]+)\s*\\?$/)?.[1])
+      .filter(Boolean)
+      .sort();
+  const release = await members("../.github/workflows/release.yml");
+  assert.ok(release.includes("package/dist/projectSnapshots.js"));
+  assert.deepEqual(release, await members("../.github/workflows/ci.yml"));
+  const workflow = await readText("../.github/workflows/release.yml");
+  assert.match(workflow, /tar -xzOf "\$\{tarball\}" package\/package\.json \| node/);
+});
+
+test("python backend SDK version matches the package version", async () => {
+  const pyproject = await readText("../python/pyproject.toml");
+  const init = await readText("../python/src/lumina_workshop_backend/__init__.py");
+  assert.match(pyproject, new RegExp(`version = "${packageValue.version}"`));
+  assert.match(init, new RegExp(`__version__ = "${packageValue.version}"`));
+  assert.match(pyproject, /dependencies = \[\]/);
 });
 
 test("documentation points only to the public immutable release", async () => {
@@ -74,6 +101,35 @@ test("release identity guard accepts exactly the package version tag", async () 
   assert.match(workflow, /GITHUB_REF_NAME.*EXPECTED_TAG/);
 });
 
+test("1.1.0 release documentation includes both packages and their API boundary", async () => {
+  const documentation = [await readText("../README.md"), await readText("../docs/module-development.md")].join("\n");
+  assert.match(documentation, /lumina-workshop-sdk-1\.1\.0\.tgz/);
+  assert.match(documentation, /lumina_workshop_backend-1\.1\.0-py3-none-any\.whl/);
+  assert.match(documentation, /backend\.tasks/);
+  assert.match(documentation, /releases\/download\/v1\.1\.0\//);
+  assert.doesNotMatch(documentation, /unreleased|not published yet|尚未发布/);
+});
+
+test("1.1.0 documentation covers the backend contracts", async () => {
+  const documentation = [
+    await readText("../README.md"),
+    await readText("../docs/module-development.md"),
+    await readText("../docs/backend-protocol.md"),
+    await readText("../python/README.md"),
+  ].join("\n");
+  for (const publicContract of [
+    "backend.tasks",
+    "manifestVersion\": 2",
+    "pylock.toml",
+    "LUMINA_WORKSHOP_CONTROL_FDS",
+    "waitFor",
+    "check_cancelled",
+    "not an OS",
+  ]) {
+    assert.ok(documentation.includes(publicContract), publicContract);
+  }
+});
+
 test("1.0.2 documentation covers its new public contracts", async () => {
   const documentation = [
     await readText("../README.md"),
@@ -87,27 +143,6 @@ test("1.0.2 documentation covers its new public contracts", async () => {
     "ui.stateChanged",
   ]) {
     assert.match(documentation, new RegExp(publicContract.replace(".", "\\.")));
-  }
-});
-
-test("both workflows enumerate the same exact package surface", async () => {
-  const members = async (path) =>
-    (await readText(path))
-      .split("\n")
-      .map((line) => line.match(/^\s+(package\/[A-Za-z0-9._/-]+)\s*\\?$/)?.[1])
-      .filter(Boolean)
-      .sort();
-
-  const releaseMembers = await members("../.github/workflows/release.yml");
-  const ciMembers = await members("../.github/workflows/ci.yml");
-
-  assert.ok(releaseMembers.length > 0);
-  assert.deepEqual(releaseMembers, ciMembers);
-  for (const member of [
-    "package/dist/projectSnapshots.d.ts",
-    "package/dist/projectSnapshots.js",
-  ]) {
-    assert.ok(releaseMembers.includes(member), `missing ${member}`);
   }
 });
 

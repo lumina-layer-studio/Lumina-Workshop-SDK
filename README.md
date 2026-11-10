@@ -14,6 +14,9 @@ SDK 1.1.0 adds `client.projectSnapshots`, a live project snapshot protocol on
 top of the 1.0.2 contracts. It ships as the immutable `v1.1.0` release asset, so
 the installation section below pins that exact tarball.
 
+Git-commit installs remain supported for development; the source `prepare`
+script compiles TypeScript, while the published tarball has no install scripts.
+
 Declare `"projectSnapshots": {"protocol": 1, "schemas": ["my-editor/v1"]}`
 alongside the `project.storage` permission in the module manifest. Register a
 handler before calling `client.lifecycle.ready()`:
@@ -37,7 +40,7 @@ declared schema. Older hosts ignore the optional handshake capability and keep
 using the existing storage and handoff RPC methods.
 
 当前工程快照包含尚未自动保存的编辑状态。模块先校验，再提交；宿主只保存数据，
-不会从工程文件安装或执行模块。该能力随 v1.1.0 的不可变资产发布；未广告该可选握手能力的旧宿主继续使用既有存储与交接 RPC。
+不会从工程文件安装或执行模块。该能力随 v1.1.0 的不可变资产发布；不支持该可选握手的旧宿主继续使用既有存储与交接 RPC。
 
 ## Install the immutable release (v1.1.0)
 
@@ -73,10 +76,43 @@ artifact remains reviewable.
 
 ## Package contract
 
-- API version: `1.0.0`
-- Manifest version: `1`
+- API version: `1.0.0` (frontend-only modules); `1.1.0` adds module backends
+- Manifest version: `1`; backend modules use manifest `2`
 - UI entry point: `ui/index.html`
 - Runtime transport: a host-provided `MessagePort`
+
+## SDK 1.1.0: module backends
+
+The `v1.1.0` Release contains both the JavaScript SDK
+`lumina-workshop-sdk-1.1.0.tgz` and the Python backend SDK
+`lumina_workshop_backend-1.1.0-py3-none-any.whl`, each with a `.sha256` file.
+
+SDK 1.1.0 lets a module declare a host-managed backend (manifest v2): a
+Python entry, a wheels-only PEP 751 `pylock.toml`, optional hash-pinned
+models, and optional acceleration variants. The host prepares environments
+after user consent, starts the backend only for submitted tasks, owns tasks
+and their files, and reclaims unused dependencies by reference.
+
+```ts
+const host = await connectWorkshop({
+  moduleId: "studio.lumina.example",
+  moduleVersion: "1.0.0",
+  features: ["backend.tasks"],
+});
+const task = await host.backend.submit({ operation: "invert-alpha", params: {}, inputs });
+const finished = await host.backend.waitFor(task.taskId);
+```
+
+Only modules that request `backend.tasks` report API `1.1.0`; others keep
+reporting `1.0.0` so they still work on older hosts. Backends run as local
+processes with the user's permissions; declared capabilities explain intent
+and are not an OS sandbox. See [`docs/backend-protocol.md`](docs/backend-protocol.md)
+and [`python/README.md`](python/README.md).
+
+SDK 1.1.0 的 `v1.1.0` Release 同时提供 JS 包、Python wheel 及各自的校验文件。
+1.1.0 新增模块后端（manifest v2）、`backend.tasks` 握手能力和 Python 后端 SDK；
+只请求该能力的模块才上报 API `1.1.0`。后端以用户权限在本机进程中
+运行，声明的能力只用于说明用途，不是系统级沙箱。
 
 The module manifest must declare every requested permission and explain why it
 is needed. Lumina Studio remains responsible for user confirmation, storage
@@ -89,8 +125,9 @@ compatible image fallback, and `ui.getState()` remains available for hosts
 that do not push events.
 
 SDK 1.1.0 adds `client.projectSnapshots` for live project snapshots and
-transactional restore, without removing any 1.0.2 contract. Hosts that do not
-advertise the capability keep the plain 1.0.2 behaviour.
+transactional restore, without removing any 1.0.2 contract. Snapshots are
+optional; frontend-only modules that do not request `backend.tasks` keep
+reporting Workshop API `1.0.0`.
 
 SDK versions, the Workshop API, and module versions are separate. Lumina's
 current host pins SDK 1.0.1 for its own reproducible dependency graph while

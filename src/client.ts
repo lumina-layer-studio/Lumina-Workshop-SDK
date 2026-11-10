@@ -1,8 +1,15 @@
 import {
   WORKSHOP_API_VERSION,
+  WORKSHOP_BACKEND_API_VERSION,
+  WORKSHOP_FEATURE_NAMES,
   WORKSHOP_RPC_EVENT_NAMES,
   WORKSHOP_RPC_VERSION,
+  WorkshopBackendOutput,
+  WorkshopBackendStatus,
+  WorkshopBackendSubmitRequest,
+  WorkshopBackendTask,
   WorkshopColorLibrary,
+  WorkshopFeatureName,
   WorkshopImageHandoff,
   WorkshopPickedImage,
   WorkshopProjectRecord,
@@ -20,6 +27,12 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const IMAGE_PICK_REQUEST_TIMEOUT_MS = 300_000;
 const HANDOFF_REQUEST_TIMEOUT_MS = 120_000;
 const MAX_LOCALLY_TIMED_OUT_REQUEST_IDS = 256;
+const BACKEND_TERMINAL_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
 
 interface WorkshopParentWindowLike {
   postMessage(
@@ -46,6 +59,40 @@ export interface ConnectWorkshopOptions {
   moduleVersion: string;
   windowObject?: WorkshopWindowLike;
   handshakeTimeoutMs?: number;
+  /**
+   * Optional features. `backend.tasks` raises the reported API to 1.1.0;
+   * omit it for frontend-only modules so older hosts still accept them.
+   */
+  features?: readonly WorkshopFeatureName[];
+}
+
+export interface WorkshopWaitOptions {
+  /** Pause between status requests; 500 ms by default. */
+  intervalMs?: number;
+  /**
+   * Limit for the whole wait, status requests included. Once it has passed,
+   * `waitFor` rejects with the retryable `WAIT_TIMEOUT` error instead of
+   * starting or awaiting another request. The task is not cancelled: read it
+   * again later with `get` or `waitFor`. Without a limit the wait continues
+   * until the task ends, and each request has the normal RPC timeout.
+   */
+  timeoutMs?: number;
+  onProgress?(task: WorkshopBackendTask): void;
+}
+
+/**
+ * Host-owned backend tasks. Closing the module page only ends this client's
+ * waits; submitted tasks keep running and can be listed after reopening.
+ */
+export interface WorkshopBackendClient {
+  status(): Promise<WorkshopBackendStatus>;
+  submit(request: WorkshopBackendSubmitRequest): Promise<WorkshopBackendTask>;
+  get(taskId: string): Promise<WorkshopBackendTask>;
+  list(): Promise<WorkshopBackendTask[]>;
+  cancel(taskId: string): Promise<WorkshopBackendTask>;
+  readOutput(taskId: string, name: string): Promise<WorkshopBackendOutput>;
+  remove(taskId: string): Promise<void>;
+  waitFor(taskId: string, options?: WorkshopWaitOptions): Promise<WorkshopBackendTask>;
 }
 
 export class WorkshopClientError extends Error {
@@ -108,6 +155,9 @@ export interface WorkshopClient {
   lifecycle: {
     ready(): Promise<void>;
   };
+  /** Requires `features: ["backend.tasks"]` when connecting. */
+  backend: WorkshopBackendClient;
+  readonly features: ReadonlySet<WorkshopFeatureName>;
   close(): void;
 }
 
@@ -190,6 +240,8 @@ class PortWorkshopClient implements WorkshopClient {
   readonly ui;
   readonly status;
   readonly lifecycle;
+  readonly backend: WorkshopBackendClient;
+  readonly features: ReadonlySet<WorkshopFeatureName>;
 
   private readonly port: MessagePort;
   private readonly pending = new Map<string, PendingRequest>();
@@ -202,9 +254,14 @@ class PortWorkshopClient implements WorkshopClient {
   private requestSequence = 0;
   private closed = false;
 
-  constructor(sessionId: string, port: MessagePort) {
+  constructor(
+    sessionId: string,
+    port: MessagePort,
+    features: ReadonlySet<WorkshopFeatureName> = new Set(),
+  ) {
     this.sessionId = sessionId;
     this.port = port;
+    this.features = features;
     this.projectEndpoint = createProjectSnapshotEndpoint((value) => this.port.postMessage(value));
     this.projectSnapshots = this.projectEndpoint.api;
     this.port.onmessage = (event) => this.handleMessage(event.data);
@@ -308,6 +365,95 @@ class PortWorkshopClient implements WorkshopClient {
     };
     this.lifecycle = {
       ready: () => this.request<void>("lifecycle.ready", {}),
+    };
+    const backendRequest = <T>(
+      method: WorkshopRpcMethod,
+      payload: unknown,
+      transfer: Transferable[] = [],
+      timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    ): Promise<T> => {
+      if (!this.features.has("backend.tasks")) {
+        return Promise.reject(
+          new WorkshopClientError(
+            "FEATURE_NOT_REQUESTED",
+            "Connect with features: [\"backend.tasks\"] to use backend tasks.",
+          ),
+        );
+      }
+      return this.request<T>(method, payload, transfer, timeoutMs);
+    };
+    const get = (taskId: string) =>
+      backendRequest<WorkshopBackendTask>("backend.get", { taskId });
+    this.backend = {
+      status: () => backendRequest<WorkshopBackendStatus>("backend.status", {}),
+      submit: (request: WorkshopBackendSubmitRequest) =>
+        backendRequest<WorkshopBackendTask>(
+          "backend.submit",
+          request,
+          // Inputs may share one buffer; a transfer list must name it once.
+          [...new Set(request.inputs.map((input) => input.bytes))],
+          HANDOFF_REQUEST_TIMEOUT_MS,
+        ),
+      get,
+      list: () => backendRequest<WorkshopBackendTask[]>("backend.list", {}),
+      cancel: (taskId: string) =>
+        backendRequest<WorkshopBackendTask>("backend.cancel", { taskId }),
+      readOutput: (taskId: string, name: string) =>
+        backendRequest<WorkshopBackendOutput>(
+          "backend.readOutput",
+          { taskId, name },
+          [],
+          HANDOFF_REQUEST_TIMEOUT_MS,
+        ),
+      remove: (taskId: string) =>
+        backendRequest<void>("backend.remove", { taskId }),
+      waitFor: async (taskId: string, options: WorkshopWaitOptions = {}) => {
+        const interval = options.intervalMs ?? 500;
+        const deadline =
+          options.timeoutMs === undefined ? Infinity : Date.now() + options.timeoutMs;
+        const stillRunning = () =>
+          new WorkshopClientError(
+            "WAIT_TIMEOUT",
+            "The backend task is still running.",
+            true,
+          );
+        for (;;) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) {
+            throw stillRunning();
+          }
+          // A status request may use only what is left of the wait limit.
+          const limited = remaining < DEFAULT_REQUEST_TIMEOUT_MS;
+          let task: WorkshopBackendTask;
+          try {
+            task = await backendRequest<WorkshopBackendTask>(
+              "backend.get",
+              { taskId },
+              [],
+              limited ? remaining : DEFAULT_REQUEST_TIMEOUT_MS,
+            );
+          } catch (error) {
+            if (
+              limited &&
+              error instanceof WorkshopClientError &&
+              error.code === "REQUEST_TIMEOUT"
+            ) {
+              throw stillRunning();
+            }
+            throw error;
+          }
+          options.onProgress?.(task);
+          if (BACKEND_TERMINAL_STATUSES.has(task.status)) {
+            return task;
+          }
+          await new Promise((resolve) =>
+            setTimeout(
+              resolve,
+              Math.max(0, Math.min(interval, deadline - Date.now())),
+            ),
+          );
+        }
+      },
     };
   }
 
@@ -503,6 +649,12 @@ export async function connectWorkshop(
     (window as unknown as WorkshopWindowLike);
   const handshakeTimeoutMs =
     options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
+  const knownFeatures = new Set<string>(WORKSHOP_FEATURE_NAMES);
+  const features = new Set<WorkshopFeatureName>(
+    (options.features ?? []).filter(
+      (feature): feature is WorkshopFeatureName => knownFeatures.has(feature),
+    ),
+  );
 
   return new Promise<WorkshopClient>((resolve, reject) => {
     let settled = false;
@@ -539,7 +691,9 @@ export async function connectWorkshop(
       settled = true;
       clearTimeout(timeout);
       windowObject.removeEventListener("message", onMessage);
-      resolve(new PortWorkshopClient(event.data.sessionId, event.ports[0]));
+      resolve(
+        new PortWorkshopClient(event.data.sessionId, event.ports[0], features),
+      );
     };
     const timeout = setTimeout(() => {
       finishWithError(
@@ -558,8 +712,11 @@ export async function connectWorkshop(
           type: "lumina.workshop.ready",
           moduleId: options.moduleId,
           moduleVersion: options.moduleVersion,
-          apiVersion: WORKSHOP_API_VERSION,
+          apiVersion: features.has("backend.tasks")
+            ? WORKSHOP_BACKEND_API_VERSION
+            : WORKSHOP_API_VERSION,
           events: [...WORKSHOP_RPC_EVENT_NAMES],
+          ...(features.size > 0 ? { features: [...features] } : {}),
       };
       windowObject.parent.postMessage(readyMessage, "*");
     } catch (error) {
