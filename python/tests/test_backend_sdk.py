@@ -15,6 +15,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+import zipfile
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "src"
@@ -98,6 +99,31 @@ def build_backend() -> Backend:
         raise RuntimeError("secret local path C:/Users/someone")
 
     return backend
+
+
+class WheelPackageTests(unittest.TestCase):
+    def test_standalone_wheel_contains_the_complete_license(self) -> None:
+        sdk_root = SOURCE.parents[1]
+        with tempfile.TemporaryDirectory() as temporary:
+            subprocess.run(
+                [sys.executable, str(sdk_root / "python" / "build_wheel.py"),
+                 "--output", temporary],
+                check=True,
+                capture_output=True,
+            )
+            wheel = next(Path(temporary).glob("*.whl"))
+            with zipfile.ZipFile(wheel) as archive:
+                license_name = next(
+                    (name for name in archive.namelist() if name.endswith(".dist-info/LICENSE")),
+                    None,
+                )
+                self.assertIsNotNone(license_name, "The standalone wheel must include its license")
+                license_bytes = archive.read(license_name)
+                self.assertEqual(license_bytes, (sdk_root / "LICENSE").read_bytes())
+                self.assertIn(b"GNU GENERAL PUBLIC LICENSE", license_bytes)
+                self.assertIn(b"END OF TERMS AND CONDITIONS", license_bytes)
+                record = next(name for name in archive.namelist() if name.endswith(".dist-info/RECORD"))
+                self.assertIn(f"{license_name},sha256=", archive.read(record).decode())
 
 
 class InProcessTests(unittest.TestCase):

@@ -32,6 +32,7 @@ def build(output: Path) -> Path:
     for path in sorted(SOURCE.rglob("*")):
         if path.is_file() and "__pycache__" not in path.parts:
             entries[f"lumina_workshop_backend/{path.relative_to(SOURCE).as_posix()}"] = path.read_bytes()
+    entries[f"{dist_info}/LICENSE"] = (ROOT.parent / "LICENSE").read_bytes()
     entries[f"{dist_info}/METADATA"] = (
         "Metadata-Version: 2.1\n"
         f"Name: {project['name']}\n"
