@@ -20,10 +20,10 @@ test("publishes an exact dependency-free public package identity", () => {
     "preinstall",
     "install",
     "postinstall",
-    "prepare",
   ]) {
     assert.equal(packageValue.scripts[name], undefined);
   }
+  assert.equal(packageValue.scripts.prepare, "tsc -p tsconfig.json");
 });
 
 test("release workflow is tag-only, pinned, and immutable", async () => {
@@ -51,6 +51,18 @@ test("release workflow is tag-only, pinned, and immutable", async () => {
   assert.match(workflow, /python3 python\/build_wheel\.py --output dist-package/);
   assert.match(workflow, /"\$\{wheel\}\.sha256"/);
   assert.doesNotMatch(workflow, /twine|pypi/i);
+});
+
+test("release inspects the same packed files as CI and the packed manifest", async () => {
+  const members = async (path) =>
+    [...(await readText(path)).matchAll(/^\s+(package\/\S+) \\$/gm)]
+      .map((match) => match[1])
+      .sort();
+  const release = await members("../.github/workflows/release.yml");
+  assert.ok(release.includes("package/dist/projectSnapshots.js"));
+  assert.deepEqual(release, await members("../.github/workflows/ci.yml"));
+  const workflow = await readText("../.github/workflows/release.yml");
+  assert.match(workflow, /tar -xzOf "\$\{tarball\}" package\/package\.json \| node/);
 });
 
 test("python backend SDK version matches the package version", async () => {
@@ -83,7 +95,7 @@ test("all immutable dependency examples use the 1.0.2 release identity", async (
   assert.doesNotMatch(documentation, /v1\.0\.1|sdk-1\.0\.1/);
 });
 
-test("release identity guard accepts exactly tag v1.1.0", async () => {
+test("release identity guard accepts exactly the package version tag", async () => {
   const workflow = await readText("../.github/workflows/release.yml");
   const expectedTag = `v${packageValue.version}`;
 

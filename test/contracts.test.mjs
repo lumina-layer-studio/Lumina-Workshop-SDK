@@ -73,6 +73,7 @@ test("connects only after the host transfers one MessagePort", async () => {
     moduleVersion: "1.0.0",
     apiVersion: "1.0.0",
     events: ["ui.stateChanged"],
+    projectSnapshotProtocol: 1,
   });
   assert.equal(client.sessionId, "session-1");
   client.close();
@@ -688,6 +689,7 @@ test("requests backend tasks with API 1.1.0 and keeps 1.0.0 otherwise", async ()
     apiVersion: "1.1.0",
     events: ["ui.stateChanged"],
     features: ["backend.tasks"],
+    projectSnapshotProtocol: 1,
   });
   assert.equal(WORKSHOP_BACKEND_API_VERSION, "1.1.0");
   assert.ok(client.features.has("backend.tasks"));

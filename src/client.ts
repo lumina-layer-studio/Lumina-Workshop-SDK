@@ -20,6 +20,7 @@ import {
   WorkshopUiState,
   createRequestEnvelope,
 } from "./contracts.js";
+import { createProjectSnapshotEndpoint, type WorkshopProjectSnapshots } from "./projectSnapshots.js";
 
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -107,6 +108,7 @@ export class WorkshopClientError extends Error {
 }
 
 export interface WorkshopClient {
+  projectSnapshots: WorkshopProjectSnapshots;
   readonly sessionId: string;
   image: {
     pick(): Promise<WorkshopPickedImage | null>;
@@ -228,6 +230,8 @@ function parseEvent(value: unknown): WorkshopRpcEvent | null {
 }
 
 class PortWorkshopClient implements WorkshopClient {
+  readonly projectSnapshots;
+  private readonly projectEndpoint;
   readonly sessionId: string;
   readonly image;
   readonly projects;
@@ -258,6 +262,8 @@ class PortWorkshopClient implements WorkshopClient {
     this.sessionId = sessionId;
     this.port = port;
     this.features = features;
+    this.projectEndpoint = createProjectSnapshotEndpoint((value) => this.port.postMessage(value));
+    this.projectSnapshots = this.projectEndpoint.api;
     this.port.onmessage = (event) => this.handleMessage(event.data);
     this.port.onmessageerror = () => {
       this.failProtocol(
@@ -456,6 +462,7 @@ class PortWorkshopClient implements WorkshopClient {
       return;
     }
     this.closed = true;
+    this.projectEndpoint.close();
     this.port.onmessage = null;
     this.port.onmessageerror = null;
     this.port.close();
@@ -524,6 +531,7 @@ class PortWorkshopClient implements WorkshopClient {
   }
 
   private handleMessage(value: unknown): void {
+    if (this.projectEndpoint.receive(value)) return;
     const event = parseEvent(value);
     if (event !== null) {
       this.publishUiState(event.payload);
@@ -598,6 +606,7 @@ class PortWorkshopClient implements WorkshopClient {
       return;
     }
     this.closed = true;
+    this.projectEndpoint.close();
     this.port.onmessage = null;
     this.port.onmessageerror = null;
     this.port.close();
@@ -699,6 +708,7 @@ export async function connectWorkshop(
     windowObject.addEventListener("message", onMessage);
     try {
       const readyMessage: WorkshopReadyMessage = {
+          projectSnapshotProtocol: 1,
           type: "lumina.workshop.ready",
           moduleId: options.moduleId,
           moduleVersion: options.moduleVersion,

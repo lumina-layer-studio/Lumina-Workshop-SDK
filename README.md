@@ -8,6 +8,38 @@ files or call private APIs. Instead, they connect through the SDK and request
 explicit capabilities such as image selection, project storage, the current
 color library, and image handoff.
 
+## Current workspace snapshots (unreleased)
+
+The unreleased `1.1.0` source also adds `client.projectSnapshots`.
+This source change does not publish a release. Companion modules can test an
+immutable Git commit; its `prepare` script only compiles the TypeScript sources.
+The release installation instructions below still describe the published SDK.
+
+Declare `"projectSnapshots": {"protocol": 1, "schemas": ["my-editor/v1"]}`
+alongside the `project.storage` permission in the module manifest. Register a
+handler before calling `client.lifecycle.ready()`:
+
+```ts
+const unregister = client.projectSnapshots.register({
+  capture: () => ({ schemaVersion: "my-editor/v1", state: editor.current() }),
+  prepare: (snapshot) => editor.validateAndPrepare(snapshot),
+  commit: (prepared) => editor.applyAndWaitForRender(prepared),
+});
+// Call after each user edit, including edits not yet in project storage.
+client.projectSnapshots.changed();
+// Call unregister() when the editor unmounts.
+```
+
+`capture` returns the current editable state, not a cached storage record.
+`prepare` validates without changing it; `commit` resolves after adoption.
+The host serializes structured-clone data and source bytes into `.lum`, never
+module scripts. Opening requires the installed matching module/version and
+declared schema. Older hosts ignore the optional handshake capability and keep
+using the existing storage and handoff RPC methods.
+
+当前工程快照包含尚未自动保存的编辑状态。模块先校验，再提交；宿主只保存数据，
+不会从工程文件安装或执行模块。此改动尚未发布，正式 SDK 下载地址保持原版本。
+
 ## Install the immutable v1 release
 
 Lumina publishes the SDK only as a versioned GitHub Release asset. Verify the
