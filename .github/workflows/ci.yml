@@ -35,6 +35,14 @@ jobs:
       - name: Test and build the public contract
         run: pnpm test
 
+      - name: Test and build the Python backend SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -c 'import sys; assert sys.version_info >= (3, 12), sys.version'
+          python3 -m unittest discover -s python/tests -v
+          python3 python/build_wheel.py --output dist-package
+
       - name: Pack and inspect the exact public surface
         shell: bash
         run: |

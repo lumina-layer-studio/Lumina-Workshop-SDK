@@ -48,6 +48,23 @@ jobs:
       - name: Test and pack exactly once
         run: pnpm run pack:release
 
+      - name: Test the Python backend SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -c 'import sys; assert sys.version_info >= (3, 12), sys.version'
+          python3 -m unittest discover -s python/tests -v
+
+      - name: Build the Python backend SDK wheel exactly once
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 python/build_wheel.py --output dist-package
+          wheel="dist-package/lumina_workshop_backend-${SDK_VERSION}-py3-none-any.whl"
+          test -f "${wheel}"
+          grep -Eq '^[0-9a-f]{64}  lumina_workshop_backend-[0-9]+\.[0-9]+\.[0-9]+-py3-none-any\.whl$' \
+            "${wheel}.sha256"
+
       - name: Inspect the exact public package surface
         shell: bash
         run: |
@@ -65,16 +82,24 @@ jobs:
             package/dist/contracts.js \
             package/dist/index.d.ts \
             package/dist/index.js \
+            package/dist/projectSnapshots.d.ts \
+            package/dist/projectSnapshots.js \
             package/dist/theme.d.ts \
             package/dist/theme.js \
             package/package.json \
             | LC_ALL=C sort > /tmp/expected-sdk-members.txt
           cmp /tmp/expected-sdk-members.txt /tmp/sdk-members.txt
-          node -e '
-            const value = require("./package.json");
-            for (const name of ["preinstall", "install", "postinstall", "prepare"]) {
-              if (value.scripts?.[name]) process.exit(1);
-            }
+          # The source keeps "prepare" for Git-commit installs; the published
+          # package itself must run nothing when it is installed.
+          tar -xzOf "${tarball}" package/package.json | node -e '
+            let text = "";
+            process.stdin.on("data", (chunk) => { text += chunk; });
+            process.stdin.on("end", () => {
+              const value = JSON.parse(text);
+              for (const name of ["preinstall", "install", "postinstall", "prepare"]) {
+                if (value.scripts?.[name]) process.exit(1);
+              }
+            });
           '
 
       - name: Verify generated files did not change reviewed source
@@ -100,9 +125,12 @@ jobs:
           tag="v${SDK_VERSION}"
           tarball="dist-package/lumina-workshop-sdk-${SDK_VERSION}.tgz"
           checksum="${tarball}.sha256"
+          wheel="dist-package/lumina_workshop_backend-${SDK_VERSION}-py3-none-any.whl"
           gh release create "${tag}" \
             "${tarball}" \
             "${checksum}" \
+            "${wheel}" \
+            "${wheel}.sha256" \
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --title "Lumina Workshop SDK ${SDK_VERSION}" \

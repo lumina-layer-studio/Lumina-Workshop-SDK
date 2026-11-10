@@ -1,0 +1,14 @@
+[project]
+name = "lumina-workshop-backend"
+version = "1.1.0"
+description = "Public Python SDK for Lumina Studio Creative Workshop module backends"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/lumina-layer-studio/Lumina-Workshop-SDK"
+
+# Built reproducibly with the stdlib-only python/build_wheel.py and published
+# only as an immutable GitHub Release asset; there is no PyPI publication.

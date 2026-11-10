@@ -10,7 +10,7 @@ const readText = (path) =>
 
 test("publishes an exact dependency-free public package identity", () => {
   assert.equal(packageValue.name, "@lumina/workshop-sdk");
-  assert.equal(packageValue.version, "1.1.0-dev.0");
+  assert.equal(packageValue.version, "1.1.0");
   assert.equal(packageValue.packageManager, "pnpm@10.33.2");
   assert.equal(packageValue.engines.node, ">=22");
   assert.deepEqual(packageValue.files, ["dist", "README.md", "LICENSE"]);
@@ -46,6 +46,31 @@ test("release workflow is tag-only, pinned, and immutable", async () => {
   assert.doesNotMatch(workflow, /npm publish/);
   assert.doesNotMatch(workflow, /--latest/);
   assert.doesNotMatch(workflow.toLowerCase(), /\/latest\//);
+  // The Python backend SDK is tested, built once, and released beside it.
+  assert.match(workflow, /python3 -m unittest discover -s python\/tests/);
+  assert.match(workflow, /python3 python\/build_wheel\.py --output dist-package/);
+  assert.match(workflow, /"\$\{wheel\}\.sha256"/);
+  assert.doesNotMatch(workflow, /twine|pypi/i);
+});
+
+test("release inspects the same packed files as CI and the packed manifest", async () => {
+  const members = async (path) =>
+    [...(await readText(path)).matchAll(/^\s+(package\/\S+) \\$/gm)]
+      .map((match) => match[1])
+      .sort();
+  const release = await members("../.github/workflows/release.yml");
+  assert.ok(release.includes("package/dist/projectSnapshots.js"));
+  assert.deepEqual(release, await members("../.github/workflows/ci.yml"));
+  const workflow = await readText("../.github/workflows/release.yml");
+  assert.match(workflow, /tar -xzOf "\$\{tarball\}" package\/package\.json \| node/);
+});
+
+test("python backend SDK version matches the package version", async () => {
+  const pyproject = await readText("../python/pyproject.toml");
+  const init = await readText("../python/src/lumina_workshop_backend/__init__.py");
+  assert.match(pyproject, new RegExp(`version = "${packageValue.version}"`));
+  assert.match(init, new RegExp(`__version__ = "${packageValue.version}"`));
+  assert.match(pyproject, /dependencies = \[\]/);
 });
 
 test("documentation points only to the public immutable release", async () => {
@@ -74,9 +99,39 @@ test("release identity guard accepts exactly the package version tag", async () 
   const workflow = await readText("../.github/workflows/release.yml");
   const expectedTag = `v${packageValue.version}`;
 
-  assert.equal(expectedTag, "v1.1.0-dev.0");
+  assert.equal(expectedTag, "v1.1.0");
   assert.match(workflow, /EXPECTED_TAG="v\$\{SDK_VERSION\}"/);
   assert.match(workflow, /GITHUB_REF_NAME.*EXPECTED_TAG/);
+});
+
+test("1.1.0 is documented as unreleased until its tagged Release exists", async () => {
+  const readme = await readText("../README.md");
+  assert.match(readme, /SDK 1\.1\.0: module backends \(unreleased\)/);
+  assert.match(readme, /lumina-workshop-sdk-1\.1\.0\.tgz/);
+  assert.match(readme, /lumina_workshop_backend-1\.1\.0-py3-none-any\.whl/);
+  assert.match(readme, /not published yet/);
+  // Install instructions keep pointing at the latest published release.
+  assert.doesNotMatch(readme, /releases\/download\/v1\.1\.0\//);
+});
+
+test("1.1.0 documentation covers the backend contracts", async () => {
+  const documentation = [
+    await readText("../README.md"),
+    await readText("../docs/module-development.md"),
+    await readText("../docs/backend-protocol.md"),
+    await readText("../python/README.md"),
+  ].join("\n");
+  for (const publicContract of [
+    "backend.tasks",
+    "manifestVersion\": 2",
+    "pylock.toml",
+    "LUMINA_WORKSHOP_CONTROL_FDS",
+    "waitFor",
+    "check_cancelled",
+    "not an OS",
+  ]) {
+    assert.ok(documentation.includes(publicContract), publicContract);
+  }
 });
 
 test("1.0.2 documentation covers its new public contracts", async () => {
