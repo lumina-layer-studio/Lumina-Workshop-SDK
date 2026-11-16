@@ -5,6 +5,7 @@ import { readdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync, cpSync, 
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { crc32, inflateSync } from 'node:zlib';
 import { unzipSync, zipSync, strToU8, strFromU8 } from '../templates/image-handoff/node_modules/fflate/esm/browser.js';
 import { chromium } from '../templates/image-handoff/node_modules/playwright/index.mjs';
 
@@ -31,9 +32,43 @@ test('builds a five-member module and checks its actual handshake', () => {
   const packageName = readdirSync(`${template}/dist`).find((name) => name.endsWith('.lumina-workshop'));
   assert.ok(packageName);
   const path = `${template}/dist/${packageName}`;
-  const members = execFileSync('unzip', ['-Z1', path], { encoding: 'utf8' }).trim().split('\n').sort();
+  const members = Object.keys(unzipSync(readFileSync(path))).sort();
   assert.deepEqual(members, ['LICENSE', 'README.md', 'assets/icon.png', 'manifest.json', 'ui/index.html']);
   execFileSync(process.execPath, ['scripts/check-package.mjs', path], { cwd: template, stdio: 'pipe' });
+});
+
+test('packaged PNG icon has valid chunk CRCs and decodable image data', () => {
+  execFileSync(process.execPath, ['scripts/package.mjs'], { cwd: template });
+  const path = join(template, 'dist', 'example.image-handoff-1.0.0.lumina-workshop');
+  const icon = Buffer.from(unzipSync(readFileSync(path))['assets/icon.png']);
+  assert.deepEqual([...icon.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  const imageData = [];
+  let end = false;
+  for (let offset = 8; offset < icon.length;) {
+    const length = icon.readUInt32BE(offset);
+    const type = icon.toString('ascii', offset + 4, offset + 8);
+    const dataEnd = offset + 8 + length;
+    assert.ok(dataEnd + 4 <= icon.length, `truncated ${type} chunk`);
+    assert.equal(crc32(icon.subarray(offset + 4, dataEnd)), icon.readUInt32BE(dataEnd), `invalid ${type} CRC`);
+    if (type === 'IDAT') imageData.push(icon.subarray(offset + 8, dataEnd));
+    if (type === 'IEND') end = true;
+    offset = dataEnd + 4;
+  }
+  assert.ok(end && imageData.length > 0);
+  assert.ok(inflateSync(Buffer.concat(imageData)).length > 0);
+});
+
+test('accepts complete licenses with CRLF line endings in the final package', () => {
+  execFileSync(process.execPath, ['scripts/package.mjs'], { cwd: template });
+  const path = join(template, 'dist', 'example.image-handoff-1.0.0.lumina-workshop');
+  const entries = unzipSync(readFileSync(path));
+  entries.LICENSE = strToU8(strFromU8(entries.LICENSE).replace(/\r?\n/g, '\r\n'));
+  const dir = mkdtempSync(join(tmpdir(), 'workshop-crlf-'));
+  try {
+    const converted = join(dir, 'crlf.lumina-workshop');
+    writeFileSync(converted, zipSync(entries));
+    execFileSync(process.execPath, ['scripts/check-package.mjs', converted], { cwd: template, stdio: 'pipe' });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('real MessageChannel retries preserve PNG and project identity, then new selection gets a new ID', async () => {
@@ -108,18 +143,21 @@ test('rejects stale identity and incomplete licenses from the actual package', (
   const dir = mkdtempSync(join(tmpdir(), 'workshop-package-'));
   try {
     const cases = [
-      entries => { const manifest = JSON.parse(strFromU8(entries['manifest.json'])); manifest.version = '9.8.7'; entries['manifest.json'] = strToU8(JSON.stringify(manifest)); },
-      entries => { const manifest = JSON.parse(strFromU8(entries['manifest.json'])); manifest.id = 'example.wrong'; entries['manifest.json'] = strToU8(JSON.stringify(manifest)); },
-      entries => { entries.LICENSE = entries.LICENSE.slice(0, 100); },
-      entries => { entries.LICENSE = entries.LICENSE.slice(0, -100); },
-      entries => { const license = strFromU8(entries.LICENSE); entries.LICENSE = strToU8(license.slice(license.indexOf('--- @lumina/workshop-sdk license ---'))); },
-      entries => { entries['ui/index.html'] = strToU8('<!doctype html><p>No handshake</p>'); },
-      entries => { entries['ui/index.html'] = strToU8('<script>this is invalid javascript !!!</script>'); },
+      [entries => { const manifest = JSON.parse(strFromU8(entries['manifest.json'])); manifest.version = '9.8.7'; entries['manifest.json'] = strToU8(JSON.stringify(manifest)); }, /identity mismatch: expected .*9\.8\.7.*reported .*1\.0\.0/],
+      [entries => { const manifest = JSON.parse(strFromU8(entries['manifest.json'])); manifest.id = 'example.wrong'; entries['manifest.json'] = strToU8(JSON.stringify(manifest)); }, /identity mismatch: expected .*example\.wrong.*reported .*example\.image-handoff/],
+      [entries => { entries.LICENSE = entries.LICENSE.slice(0, 100); }, /Missing or incomplete license/],
+      [entries => { entries.LICENSE = entries.LICENSE.slice(0, -100); }, /Missing or incomplete license/],
+      [entries => { const license = strFromU8(entries.LICENSE); entries.LICENSE = strToU8(license.slice(license.indexOf('--- @lumina/workshop-sdk license ---'))); }, /Missing or incomplete license/],
+      [entries => { entries['ui/index.html'] = strToU8('<!doctype html><p>No handshake</p>'); }, /Handshake timed out/],
+      [entries => { entries['ui/index.html'] = strToU8('<script>this is invalid javascript !!!</script>'); }, /Handshake timed out|Module script error/],
     ];
-    for (const [index, mutate] of cases.entries()) {
+    for (const [index, [mutate, expected]] of cases.entries()) {
       const entries = unzipSync(original); mutate(entries);
       const bad = join(dir, `${index}.lumina-workshop`); writeFileSync(bad, zipSync(entries));
-      assert.throws(() => execFileSync(process.execPath, ['scripts/check-package.mjs', bad], { cwd: template, stdio: 'pipe' }), `invalid package ${index} accepted`);
+      assert.throws(() => execFileSync(process.execPath, ['scripts/check-package.mjs', bad], { cwd: template, stdio: 'pipe' }), error => {
+        assert.match(error.stderr.toString(), expected, `invalid package ${index} failed for the wrong reason`);
+        return true;
+      }, `invalid package ${index} accepted`);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

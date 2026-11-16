@@ -14,7 +14,7 @@ const html = (await read('index.html')).toString().replace('/* BUNDLE */', scrip
 const moduleLicense = await read('LICENSE');
 const sdkLicense = await read('node_modules/@lumina/workshop-sdk/LICENSE');
 const license = Buffer.concat([moduleLicense, Buffer.from('\n\n--- @lumina/workshop-sdk license ---\n\n'), sdkLicense]);
-const icon = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aXkAAAAASUVORK5CYII=', 'base64');
+const icon = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNwqHj2HwAFOAKeGWrWiAAAAABJRU5ErkJggg==', 'base64');
 const entries = { 'manifest.json': manifestBytes, 'ui/index.html': strToU8(html), 'assets/icon.png': icon, 'README.md': await read('README.md'), LICENSE: license };
 const zip = zipSync(entries, { level: 9, mtime: new Date(1980, 0, 1, 0, 0, 0) });
 const dir = new URL('../dist/', import.meta.url); await mkdir(dir, { recursive: true });
