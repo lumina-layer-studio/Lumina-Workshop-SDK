@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 1,
+  "id": "example.image-handoff",
+  "version": "1.0.0",
+  "name": { "zh-CN": "图片交接示例", "en-US": "Image handoff example" },
+  "description": { "zh-CN": "选择图片并交给转换器。", "en-US": "Choose an image and hand it to the converter." },
+  "publisher": "Example Studio",
+  "workshopApi": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "luminaVersion": { "min": "2.0.0" },
+  "entrypoints": { "ui": "ui/index.html" },
+  "permissions": [
+    { "name": "image.pick", "reason": "Choose an image" },
+    { "name": "handoff.image", "reason": "Send the image to the converter" }
+  ]
+}
