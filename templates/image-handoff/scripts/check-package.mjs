@@ -1,17 +1,19 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { validateIdentity } from './identity.mjs';
 
 const path = process.argv[2];
 if (!path) throw new Error('Usage: node scripts/check-package.mjs <package>');
 const entries = unzipSync(await readFile(path));
 for (const name of ['LICENSE', 'manifest.json', 'ui/index.html']) if (!entries[name]) throw new Error(`Missing ${name}`);
 const manifest = JSON.parse(strFromU8(entries['manifest.json']));
+validateIdentity(manifest);
 const normalizeLineEndings = text => text.replace(/\r\n/g, '\n');
 const license = normalizeLineEndings(strFromU8(entries.LICENSE));
 const moduleLicense = normalizeLineEndings(await readFile(new URL('../LICENSE', import.meta.url), 'utf8'));
 const sdkLicense = normalizeLineEndings(await readFile(new URL('../node_modules/@lumina/workshop-sdk/LICENSE', import.meta.url), 'utf8'));
-if (!license.includes(moduleLicense) || !license.includes(sdkLicense)) throw new Error('Missing or incomplete license');
+if (!moduleLicense.trim() || !sdkLicense.trim() || !license.includes(moduleLicense) || !license.includes(sdkLicense)) throw new Error('Missing or incomplete license');
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) });
 try {
   const context = await browser.newContext();

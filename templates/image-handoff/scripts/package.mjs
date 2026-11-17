@@ -3,14 +3,15 @@ import { zipSync, strToU8 } from 'fflate';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { validateIdentity } from './identity.mjs';
 
 const read = path => readFile(new URL(`../${path}`, import.meta.url));
 const manifestBytes = await read('manifest.json');
 const manifest = JSON.parse(manifestBytes);
-if (typeof manifest.id !== 'string' || typeof manifest.version !== 'string' || !/^[a-z0-9.-]+$/.test(manifest.id) || !/^[0-9A-Za-z.+-]+$/.test(manifest.version)) throw new Error('Invalid module identity');
+validateIdentity(manifest);
 const bundled = await build({ entryPoints: [fileURLToPath(new URL('../src/main.js', import.meta.url))], bundle: true, write: false, format: 'iife', platform: 'browser' });
 const script = bundled.outputFiles[0].text.replaceAll('</script', '<\\/script');
-const html = (await read('index.html')).toString().replace('/* BUNDLE */', script);
+const html = (await read('index.html')).toString().replace('/* BUNDLE */', () => script);
 const moduleLicense = await read('LICENSE');
 const sdkLicense = await read('node_modules/@lumina/workshop-sdk/LICENSE');
 const license = Buffer.concat([moduleLicense, Buffer.from('\n\n--- @lumina/workshop-sdk license ---\n\n'), sdkLicense]);

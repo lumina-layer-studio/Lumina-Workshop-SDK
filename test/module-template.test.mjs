@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync, cpSync, symlinkSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync, cpSync, symlinkSync, mkdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,37 @@ import { chromium } from '../templates/image-handoff/node_modules/playwright/ind
 
 const template = fileURLToPath(new URL('../templates/image-handoff/', import.meta.url));
 
+for (const [name, mutate, expected] of [
+  ['empty module license', dir => writeFileSync(join(dir, 'LICENSE'), ''), /license/i],
+  ['whitespace module license', dir => writeFileSync(join(dir, 'LICENSE'), ' \n\t\n'), /license/i],
+  ['invalid version', dir => { const path = join(dir, 'manifest.json'); const manifest = JSON.parse(readFileSync(path)); manifest.version = 'foo'; writeFileSync(path, JSON.stringify(manifest)); }, /invalid module identity/i],
+  ['invalid module id', dir => { const path = join(dir, 'manifest.json'); const manifest = JSON.parse(readFileSync(path)); manifest.id = 'example..broken'; writeFileSync(path, JSON.stringify(manifest)); }, /invalid module identity/i],
+]) {
+  test(`build rejects ${name}`, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'workshop-invalid-'));
+    try {
+      cpSync(template, dir, { recursive: true, filter: source => !['node_modules', 'dist'].includes(basename(source)) });
+      symlinkSync(join(template, 'node_modules'), join(dir, 'node_modules'), 'dir');
+      mutate(dir);
+      assert.throws(() => execFileSync(process.execPath, ['scripts/package.mjs'], { cwd: dir, stdio: 'pipe' }), error => {
+        assert.match(error.stderr.toString(), expected); return true;
+      });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}
+
+test('build rejects an empty installed SDK license', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workshop-empty-sdk-'));
+  try {
+    cpSync(template, dir, { recursive: true, filter: source => !['node_modules', 'dist'].includes(basename(source)) });
+    mkdirSync(join(dir, 'node_modules', '@lumina'), { recursive: true });
+    for (const name of ['esbuild', 'fflate', 'playwright']) symlinkSync(realpathSync(join(template, 'node_modules', name)), join(dir, 'node_modules', name), 'dir');
+    cpSync(realpathSync(join(template, 'node_modules', '@lumina/workshop-sdk')), join(dir, 'node_modules/@lumina/workshop-sdk'), { recursive: true });
+    writeFileSync(join(dir, 'node_modules/@lumina/workshop-sdk/LICENSE'), ' \n\t\n');
+    assert.throws(() => execFileSync(process.execPath, ['scripts/package.mjs'], { cwd: dir, stdio: 'pipe' }), error => { assert.match(error.stderr.toString(), /license/i); return true; });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('changing only manifest identity changes the package name and real ready message', () => {
   const dir = mkdtempSync(join(tmpdir(), 'workshop-copy-'));
   try {
@@ -18,10 +49,10 @@ test('changing only manifest identity changes the package name and real ready me
     symlinkSync(join(template, 'node_modules'), join(dir, 'node_modules'), 'dir');
     const manifestPath = join(dir, 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath));
-    manifest.id = 'example.changed-module'; manifest.version = '2.3.4';
+    manifest.id = 'example.changed-module'; manifest.version = '2.3.4-rc.1+build.2';
     writeFileSync(manifestPath, JSON.stringify(manifest));
     execFileSync(process.execPath, ['scripts/package.mjs'], { cwd: dir });
-    const path = join(dir, 'dist', 'example.changed-module-2.3.4.lumina-workshop');
+    const path = join(dir, 'dist', 'example.changed-module-2.3.4-rc.1+build.2.lumina-workshop');
     assert.deepEqual(JSON.parse(strFromU8(unzipSync(readFileSync(path))['manifest.json'])), manifest);
     execFileSync(process.execPath, ['scripts/check-package.mjs', path], { cwd: dir });
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -79,6 +110,7 @@ test('real MessageChannel retries preserve PNG and project identity, then new se
   const manifest = JSON.parse(readFileSync(manifestPath));
   manifest.id = 'example.changed-module'; manifest.version = '2.3.4';
   writeFileSync(manifestPath, JSON.stringify(manifest));
+  writeFileSync(join(dir, 'src/main.js'), `${readFileSync(join(dir, 'src/main.js'), 'utf8')}\nwindow.literalReplacementToken = "$&";\n`);
   execFileSync(process.execPath, ['scripts/package.mjs'], { cwd: dir });
   const path = join(dir, 'dist', 'example.changed-module-2.3.4.lumina-workshop');
   const html = strFromU8(unzipSync(readFileSync(path))['ui/index.html']);
@@ -110,6 +142,8 @@ test('real MessageChannel retries preserve PNG and project identity, then new se
     const frame = page.frameLocator('iframe');
     await frame.getByRole('button', { name: 'Choose image' }).click();
     await frame.getByRole('status').getByText('Image ready to send.').waitFor({ timeout: 3000 });
+    const innerFrame = page.frames().find(frame => frame !== page.mainFrame());
+    assert.equal(await innerFrame.evaluate(() => window.literalReplacementToken), '$&');
     await frame.getByRole('button', { name: 'Send to converter' }).click();
     await frame.getByRole('button', { name: 'Confirm replacement' }).click();
     await frame.getByRole('status').getByText('Completed.').waitFor();
@@ -143,6 +177,8 @@ test('rejects stale identity and incomplete licenses from the actual package', (
   const dir = mkdtempSync(join(tmpdir(), 'workshop-package-'));
   try {
     const cases = [
+      [entries => { const manifest = JSON.parse(strFromU8(entries['manifest.json'])); manifest.version = 'foo'; entries['manifest.json'] = strToU8(JSON.stringify(manifest)); }, /invalid module identity/i],
+      [entries => { const manifest = JSON.parse(strFromU8(entries['manifest.json'])); manifest.id = 'example..broken'; entries['manifest.json'] = strToU8(JSON.stringify(manifest)); }, /invalid module identity/i],
       [entries => { const manifest = JSON.parse(strFromU8(entries['manifest.json'])); manifest.version = '9.8.7'; entries['manifest.json'] = strToU8(JSON.stringify(manifest)); }, /identity mismatch: expected .*9\.8\.7.*reported .*1\.0\.0/],
       [entries => { const manifest = JSON.parse(strFromU8(entries['manifest.json'])); manifest.id = 'example.wrong'; entries['manifest.json'] = strToU8(JSON.stringify(manifest)); }, /identity mismatch: expected .*example\.wrong.*reported .*example\.image-handoff/],
       [entries => { entries.LICENSE = entries.LICENSE.slice(0, 100); }, /Missing or incomplete license/],
