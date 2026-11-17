@@ -91,6 +91,13 @@ locked seed, and historical release assets/signatures remain immutable.
 
 ## 最小仓库结构
 
+可从 `templates/image-handoff` 复制完整的纯前端示例。进入副本后运行
+`pnpm install --frozen-lockfile`、`pnpm build`，再运行
+`pnpm check dist/<id>-<version>.lumina-workshop`。只需在 `manifest.json` 修改模块 ID
+和版本；构建会将模块 LICENSE 与已安装 SDK 的完整 LICENSE 一同放入最终包。检查器在
+隔离、禁网的 Chromium iframe 中执行可信代码，验证最终包握手身份与许可；它不能代替
+Registry 的静态安全检查和代码审核。已发布的 release 资产不可覆盖。
+
 ```text
 my-workshop-module/
 ├── .github/workflows/ci.yml
@@ -189,8 +196,9 @@ import {
   connectWorkshop,
 } from "@lumina/workshop-sdk";
 
-const moduleId = "example.pattern-editor";
-const moduleVersion = "1.0.0";
+import manifest from "../manifest.json";
+const moduleId = manifest.id;
+const moduleVersion = manifest.version;
 
 const client = await connectWorkshop({
   moduleId,

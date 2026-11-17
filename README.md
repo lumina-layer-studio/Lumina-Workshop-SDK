@@ -8,6 +8,13 @@ files or call private APIs. Instead, they connect through the SDK and request
 explicit capabilities such as image selection, project storage, the current
 color library, and image handoff.
 
+Start a frontend-only module from `templates/image-handoff`: copy the folder,
+run `pnpm install --frozen-lockfile`, `pnpm build`, and `pnpm check` with the
+generated package path. Its manifest is the identity and version source; the
+build includes both module and installed SDK licenses. The offline browser
+check is for trusted code and does not replace Registry security review. Published
+release assets are immutable. See `docs/module-development.md` for details.
+
 ## Current workspace snapshots (`client.projectSnapshots`)
 
 SDK 1.1.0 adds `client.projectSnapshots`, a live project snapshot protocol on

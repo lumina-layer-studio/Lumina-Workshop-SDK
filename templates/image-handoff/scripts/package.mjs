@@ -1,0 +1,25 @@
+import { build } from 'esbuild';
+import { zipSync, strToU8 } from 'fflate';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { validateIdentity } from './identity.mjs';
+
+const read = path => readFile(new URL(`../${path}`, import.meta.url));
+const manifestBytes = await read('manifest.json');
+const manifest = JSON.parse(manifestBytes);
+validateIdentity(manifest);
+const bundled = await build({ entryPoints: [fileURLToPath(new URL('../src/main.js', import.meta.url))], bundle: true, write: false, format: 'iife', platform: 'browser' });
+const script = bundled.outputFiles[0].text.replaceAll('</script', '<\\/script');
+const html = (await read('index.html')).toString().replace('/* BUNDLE */', () => script);
+const moduleLicense = await read('LICENSE');
+const sdkLicense = await read('node_modules/@lumina/workshop-sdk/LICENSE');
+const license = Buffer.concat([moduleLicense, Buffer.from('\n\n--- @lumina/workshop-sdk license ---\n\n'), sdkLicense]);
+const icon = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNwqHj2HwAFOAKeGWrWiAAAAABJRU5ErkJggg==', 'base64');
+const entries = { 'manifest.json': manifestBytes, 'ui/index.html': strToU8(html), 'assets/icon.png': icon, 'README.md': await read('README.md'), LICENSE: license };
+const zip = zipSync(entries, { level: 9, mtime: new Date(1980, 0, 1, 0, 0, 0) });
+const dir = new URL('../dist/', import.meta.url); await mkdir(dir, { recursive: true });
+const path = new URL(`${manifest.id}-${manifest.version}.lumina-workshop`, dir);
+await writeFile(path, zip);
+execFileSync(process.execPath, [fileURLToPath(new URL('./check-package.mjs', import.meta.url)), fileURLToPath(path)], { stdio: 'inherit' });
+console.log(fileURLToPath(path));

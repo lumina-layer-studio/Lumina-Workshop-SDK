@@ -28,9 +28,17 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            templates/image-handoff/pnpm-lock.yaml
 
       - name: Install the frozen dependency graph
         run: pnpm install --frozen-lockfile
+
+      - name: Install template dependencies and Chromium
+        run: |
+          pnpm --dir templates/image-handoff install --frozen-lockfile
+          pnpm --dir templates/image-handoff exec playwright install --with-deps chromium
 
       - name: Test and build the public contract
         run: pnpm test

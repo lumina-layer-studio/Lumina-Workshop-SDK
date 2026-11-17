@@ -29,6 +29,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            templates/image-handoff/pnpm-lock.yaml
 
       - name: Validate immutable release identity
         shell: bash
@@ -44,6 +47,11 @@ jobs:
 
       - name: Install the frozen dependency graph
         run: pnpm install --frozen-lockfile
+
+      - name: Install template dependencies and Chromium
+        run: |
+          pnpm --dir templates/image-handoff install --frozen-lockfile
+          pnpm --dir templates/image-handoff exec playwright install --with-deps chromium
 
       - name: Test and pack exactly once
         run: pnpm run pack:release
