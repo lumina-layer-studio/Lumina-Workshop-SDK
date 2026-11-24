@@ -81,6 +81,7 @@ this SDK, never on Lumina Studio source.
 - `backend.models[].mirrors` 是同一个模型文件的 HTTPS 候选地址列表。
   `backend.artifacts` 采用同样的声明格式，用于词表、数据包等文件。模型和数据包共用
   ID 与文件名空间，文件须标明 `bytes`、`sha256` 和 `license`。
+  声明支持 Windows 时，模型和附加文件名须能在 Windows 上创建，不能用 AUX 等保留名称。
   宿主校验后把数据包路径交给 `TaskContext.artifacts[id]`，模块负责读取和处理文件。
 
 宿主按候选地址识别来源。用户可在准备后端时选择偏好的来源，由宿主在可用候选之间
