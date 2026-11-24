@@ -1,7 +1,7 @@
-# 模块后端契约 / Module backend contract (Workshop API 1.1.0)
+# 模块后端契约 / Module backend contract (Workshop API 1.2.0)
 
-本文件是公开 SDK 1.1.0 的后端契约。宿主实现位于 Lumina Studio；模块只依赖本 SDK。
-This document is the public SDK 1.1.0 backend contract. Modules depend only on
+本文件是公开 SDK 的后端契约。宿主实现位于 Lumina Studio；模块只依赖本 SDK。
+This document is the public SDK backend contract. Modules depend only on
 this SDK, never on Lumina Studio source.
 
 ## 运行模式 / Execution model
@@ -66,6 +66,28 @@ this SDK, never on Lumina Studio source.
 - 变体锁是完整锁（不是叠加层），用于 CPU/GPU 等不同运行库；只有用户开启加速时才
   准备，初始化失败时回退到 CPU。
 
+## 下载源与权限说明 / Download sources and permission text
+
+使用下列可选字段时，模块必须将 `workshopApi.min` 设为 `1.2.0` 或更高。
+现有模块可继续使用原来的声明。
+
+- `permissions[].reasonI18n` 和 `backend.capabilities[].reasonI18n` 需同时提供
+  `zh-CN` 和 `en-US`。`reason` 仍为必填，供未提供本地化字段的声明及目录摘要使用。
+- `backend.downloadSources.python` 是兼容 `python-build-standalone` 的 HTTPS
+  下载目录列表。镜像应保留官方发行目录、文件名和归档内容。
+- `backend.downloadSources.wheels` 按依赖锁中 wheel 的 SHA-256 声明 HTTPS 候选地址。
+  例如 `"wheels": {"<wheel SHA-256>": ["https://mirror.example/demo-1.0-py3-none-any.whl"]}`。
+  原始 wheel 可以来自 PyPI、PyTorch、自有站点或 GitHub Release。
+- `backend.models[].mirrors` 是同一个模型文件的 HTTPS 候选地址列表。
+  `backend.artifacts` 采用同样的声明格式，用于词表、数据包等文件。模型和数据包共用
+  ID 与文件名空间，文件须标明 `bytes`、`sha256` 和 `license`。
+  宿主校验后把数据包路径交给 `TaskContext.artifacts[id]`，模块负责读取和处理文件。
+
+宿主按候选地址识别来源。用户可在准备后端时选择偏好的来源，由宿主在可用候选之间
+回退。选择原始地址时只使用原始地址。省略候选字段时使用锁和清单提供的原始地址。
+相同内容可跨来源复用。新增字段沿用后端协议 v1，未声明数据包时 `task.artifacts`
+为空。
+
 ## SDK 版本与分发 / SDK delivery
 
 Python SDK `lumina-workshop-backend` 与 JS SDK 一样只通过本仓库的不可变 GitHub
@@ -112,7 +134,7 @@ python -I -X utf8 -X pycache_prefix=<module cache> <host bootstrap> <version dir
 
 | type | 字段 |
 | --- | --- |
-| `run` | `taskId`, `operation`, `params`, `inputs: [{name, path, fileName, mimeType}]`, `outputDir`, `workDir`, `models: {id: path}`, `variant` |
+| `run` | `taskId`, `operation`, `params`, `inputs: [{name, path, fileName, mimeType}]`, `outputDir`, `workDir`, `models: {id: path}`, `artifacts?: {id: path}`, `variant` |
 | `cancel` | `taskId`（协作取消；超过宽限期宿主终止整棵进程树） |
 | `shutdown` | 立即退出 |
 

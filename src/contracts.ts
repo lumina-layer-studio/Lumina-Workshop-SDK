@@ -4,6 +4,8 @@ export const WORKSHOP_API_VERSION = "1.0.0" as const;
 export const WORKSHOP_BACKEND_API_VERSION = "1.1.0" as const;
 /** Workshop API that adds host-confirmed material import (`materials.import`). */
 export const WORKSHOP_MATERIAL_IMPORT_API_VERSION = "1.2.0" as const;
+/** Minimum host version for source candidates, artifacts and localized reasons. */
+export const WORKSHOP_DOWNLOAD_SOURCES_API_VERSION = "1.2.0" as const;
 export const WORKSHOP_MANIFEST_VERSION = 1 as const;
 /** Manifest version for modules that declare a backend. */
 export const WORKSHOP_BACKEND_MANIFEST_VERSION = 2 as const;
@@ -79,6 +81,7 @@ export interface WorkshopManifestV1 {
   permissions: Array<{
     name: WorkshopPermissionName;
     reason: string;
+    reasonI18n?: LocalizedText;
   }>;
 }
 
@@ -95,15 +98,20 @@ export interface WorkshopBackendDeclaration {
   /** Wheels-only PEP 751 lock, e.g. `backend/pylock.toml`. */
   lock: string;
   platforms: WorkshopBackendPlatform[];
-  capabilities?: Array<{ name: WorkshopBackendCapabilityName; reason: string }>;
-  models?: Array<{
-    id: string;
-    fileName: string;
-    url: string;
-    sha256: string;
-    bytes: number;
-    license: string;
+  capabilities?: Array<{
+    name: WorkshopBackendCapabilityName;
+    reason: string;
+    reasonI18n?: LocalizedText;
   }>;
+  models?: WorkshopBackendDownloadFile[];
+  /** Verified files exposed in Python as task.artifacts. */
+  artifacts?: WorkshopBackendDownloadFile[];
+  downloadSources?: {
+    /** python-build-standalone release prefix mirrors. */
+    python?: string[];
+    /** Alternate HTTPS URLs keyed by the SHA-256 of the locked wheel. */
+    wheels?: Record<string, string[]>;
+  };
   /** Optional dependency variants such as GPU acceleration. */
   variants?: Array<{
     id: string;
@@ -114,6 +122,17 @@ export interface WorkshopBackendDeclaration {
   }>;
   /** Suggested idle release time, 30–3600 seconds. */
   idleTimeoutSeconds?: number;
+}
+
+/** Every source must return the bytes identified by sha256 and bytes. */
+export interface WorkshopBackendDownloadFile {
+  id: string;
+  fileName: string;
+  url: string;
+  mirrors?: string[];
+  sha256: string;
+  bytes: number;
+  license: string;
 }
 
 export interface WorkshopManifestV2

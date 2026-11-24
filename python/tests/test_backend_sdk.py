@@ -141,6 +141,23 @@ class InProcessTests(unittest.TestCase):
             self.assertEqual(len(cancelled.progress), 1)
             self.assertEqual(run_operation(backend, "missing", work_root=Path(root) / "e").error_code, "unknown-operation")
 
+    def test_operation_reads_a_declared_artifact(self) -> None:
+        backend = Backend()
+
+        @backend.operation("labels")
+        def labels(task: TaskContext) -> None:
+            payload = task.artifacts["labels"].read_bytes()
+            task.write_output("labels", "labels.json", "application/json", payload)
+
+        with tempfile.TemporaryDirectory() as root:
+            artifact = Path(root) / "labels.json"
+            artifact.write_bytes(b'["cat", "dog"]')
+            done = run_operation(
+                backend, "labels", work_root=Path(root) / "task", artifacts={"labels": artifact}
+            )
+            self.assertEqual(done.status, "succeeded")
+            self.assertEqual(done.outputs["labels"].read_bytes(), artifact.read_bytes())
+
     def test_inputs_with_the_same_file_name_stay_distinct(self) -> None:
         backend = Backend()
 

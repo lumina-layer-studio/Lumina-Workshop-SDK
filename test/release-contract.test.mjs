@@ -10,7 +10,7 @@ const readText = (path) =>
 
 test("publishes an exact dependency-free public package identity", () => {
   assert.equal(packageValue.name, "@lumina/workshop-sdk");
-  assert.equal(packageValue.version, "1.1.0");
+  assert.equal(packageValue.version, "1.2.0");
   assert.equal(packageValue.packageManager, "pnpm@10.33.2");
   assert.equal(packageValue.engines.node, ">=22");
   assert.deepEqual(packageValue.files, ["dist", "README.md", "LICENSE"]);
@@ -51,7 +51,7 @@ test("release workflow is tag-only, pinned, and immutable", async () => {
 
 test("release inspects the same packed files as CI and the packed manifest", async () => {
   const members = async (path) =>
-    (await readText(path)).split("\n")
+    (await readText(path)).split(/\r?\n/)
       .map((line) => line.match(/^\s+(package\/[A-Za-z0-9._/-]+)\s*\\?$/)?.[1])
       .filter(Boolean)
       .sort();
@@ -96,7 +96,7 @@ test("release identity guard accepts exactly the package version tag", async () 
   const workflow = await readText("../.github/workflows/release.yml");
   const expectedTag = `v${packageValue.version}`;
 
-  assert.equal(expectedTag, "v1.1.0");
+  assert.equal(expectedTag, "v1.2.0");
   assert.match(workflow, /EXPECTED_TAG="v\$\{SDK_VERSION\}"/);
   assert.match(workflow, /GITHUB_REF_NAME.*EXPECTED_TAG/);
 });
