@@ -1,62 +1,26 @@
 # Lumina Workshop SDK
 
-`@lumina/workshop-sdk` is the public, versioned contract between Lumina Studio
-and installable Creative Workshop modules.
+[English](README.md) · [简体中文](README_CN.md) · [Install](#install-v110) · [Quick start](#quick-start) · [Capabilities](#capabilities-and-manifest) · [Module guide](docs/module-development.md)
 
-Modules run inside a restricted iframe. They never import Lumina Studio source
-files or call private APIs. Instead, they connect through the SDK and request
-explicit capabilities such as image selection, project storage, the current
-color library, and image handoff.
+`@lumina/workshop-sdk` is the public SDK for building installable Creative Workshop modules in [Lumina Studio](https://github.com/lumina-layer-studio/Lumina-Layers).
 
-Start a frontend-only module from `templates/image-handoff`: copy the folder,
-run `pnpm install --frozen-lockfile`, `pnpm build`, and `pnpm check` with the
-generated package path. Its manifest is the identity and version source; the
-build includes both module and installed SDK licenses. The offline browser
-check is for trusted code and does not replace Registry security review. Published
-release assets are immutable. See `docs/module-development.md` for details.
+Modules run in an isolated `ui/index.html` iframe and communicate with Lumina Studio over `MessagePort` to sync language and theme, pick images, read active LUT or filament palettes, store local projects, run optional Python backend tasks, and send finished SVG or PNG artwork to Lumina's 3D print converter.
 
-## Current workspace snapshots (`client.projectSnapshots`)
+## What you can build
 
-SDK 1.1.0 adds `client.projectSnapshots`, a live project snapshot protocol on
-top of the 1.0.2 contracts. It ships as the immutable `v1.1.0` release asset, so
-the installation section below pins that exact tarball.
+| Capability | SDK surface & manifest declaration |
+| --- | --- |
+| Host theme and locale sync | `client.ui.getState()`, `client.ui.subscribeState()` (`ui.stateChanged`), `applyWorkshopUiState()` |
+| Image import & converter handoff | `image.pick` and `handoff.image` (PNG or native vector `svgBytes` + `recommendedTotalThicknessMm`) |
+| Palette and filament preview | `color-library.read` |
+| Saved projects & `.lum` snapshots | `project.storage`, plus optional `client.projectSnapshots` (`projectSnapshots.register`, `projectSnapshots.changed`) |
+| Local Python task backends | `"manifestVersion": 2`, `backend.tasks`, and `lumina_workshop_backend` |
 
-Git-commit installs remain supported for development; the source `prepare`
-script compiles TypeScript, while the published tarball has no install scripts.
+To scaffold a new module, copy [`templates/image-handoff`](templates/image-handoff) and run `pnpm install --frozen-lockfile`, `pnpm build`, and `pnpm check`. Full packaging details are in [`docs/module-development.md`](docs/module-development.md).
 
-Declare `"projectSnapshots": {"protocol": 1, "schemas": ["my-editor/v1"]}`
-alongside the `project.storage` permission in the module manifest. Register a
-handler before calling `client.lifecycle.ready()`:
+## Install (`v1.1.0`)
 
-```ts
-const unregister = client.projectSnapshots.register({
-  capture: () => ({ schemaVersion: "my-editor/v1", state: editor.current() }),
-  prepare: (snapshot) => editor.validateAndPrepare(snapshot),
-  commit: (prepared) => editor.applyAndWaitForRender(prepared),
-});
-// Call after each user edit, including edits not yet in project storage.
-client.projectSnapshots.changed();
-// Call unregister() when the editor unmounts.
-```
-
-`capture` returns the current editable state, not a cached storage record.
-`prepare` validates without changing it; `commit` resolves after adoption.
-The host serializes structured-clone data and source bytes into `.lum`, never
-module scripts. Opening requires the installed matching module/version and
-declared schema. Older hosts ignore the optional handshake capability and keep
-using the existing storage and handoff RPC methods.
-
-当前工程快照包含尚未自动保存的编辑状态。模块先校验，再提交；宿主只保存数据，
-不会从工程文件安装或执行模块。该能力随 v1.1.0 的不可变资产发布；不支持该可选握手的旧宿主继续使用既有存储与交接 RPC。
-
-## Install the immutable release (v1.1.0)
-
-Lumina publishes the SDK only as a versioned GitHub Release asset. Verify the
-checksum before adding the exact tarball URL to a module:
-
-```text
-https://github.com/lumina-layer-studio/Lumina-Workshop-SDK/releases/download/v1.1.0/lumina-workshop-sdk-1.1.0.tgz
-```
+Release `v1.1.0` ships `lumina-workshop-sdk-1.1.0.tgz` (TypeScript/JS frontend SDK) and `lumina_workshop_backend-1.1.0-py3-none-any.whl` (Python backend SDK), each with a `.sha256` checksum:
 
 ```bash
 gh release download v1.1.0 \
@@ -67,7 +31,7 @@ cd .workshop-sdk-release
 shasum -a 256 -c lumina-workshop-sdk-1.1.0.tgz.sha256
 ```
 
-Pin that exact immutable asset in `package.json`:
+Pin the release tarball URL in `package.json` and commit your lockfile:
 
 ```json
 {
@@ -77,92 +41,10 @@ Pin that exact immutable asset in `package.json`:
 }
 ```
 
-There is no npm publication, floating release asset, or unversioned download
-URL. A module repository should commit its lockfile so the resolved SDK
-artifact remains reviewable.
-
-## Package contract
-
-- API version: `1.0.0` (frontend-only modules); `1.1.0` adds module backends
-- Manifest version: `1`; backend modules use manifest `2`
-- UI entry point: `ui/index.html`
-- Runtime transport: a host-provided `MessagePort`
-
-## SDK 1.1.0: module backends
-
-The `v1.1.0` Release contains both the JavaScript SDK
-`lumina-workshop-sdk-1.1.0.tgz` and the Python backend SDK
-`lumina_workshop_backend-1.1.0-py3-none-any.whl`, each with a `.sha256` file.
-
-SDK 1.1.0 lets a module declare a host-managed backend (manifest v2): a
-Python entry, a wheels-only PEP 751 `pylock.toml`, optional hash-pinned
-models, and optional acceleration variants. The host prepares environments
-after user consent, starts the backend only for submitted tasks, owns tasks
-and their files, and reclaims unused dependencies by reference.
+## Quick start
 
 ```ts
-const host = await connectWorkshop({
-  moduleId: "studio.lumina.example",
-  moduleVersion: "1.0.0",
-  features: ["backend.tasks"],
-});
-const task = await host.backend.submit({ operation: "invert-alpha", params: {}, inputs });
-const finished = await host.backend.waitFor(task.taskId);
-```
-
-Only modules that request `backend.tasks` report API `1.1.0`; others keep
-reporting `1.0.0` so they still work on older hosts. Backends run as local
-processes with the user's permissions; declared capabilities explain intent
-and are not an OS sandbox. See [`docs/backend-protocol.md`](docs/backend-protocol.md)
-and [`python/README.md`](python/README.md).
-
-SDK 1.1.0 的 `v1.1.0` Release 同时提供 JS 包、Python wheel 及各自的校验文件。
-1.1.0 新增模块后端（manifest v2）、`backend.tasks` 握手能力和 Python 后端 SDK；
-只请求该能力的模块才上报 API `1.1.0`。后端以用户权限在本机进程中
-运行，声明的能力只用于说明用途，不是系统级沙箱。
-
-The module manifest must declare every requested permission and explain why it
-is needed. Lumina Studio remains responsible for user confirmation, storage
-quotas, converter handoff, and runtime isolation.
-
-SDK 1.0.2 adds optional native `svgBytes` and
-`recommendedTotalThicknessMm` image-handoff fields, plus live host UI updates
-through `ui.stateChanged` and `client.ui.subscribeState()`. PNG remains the
-compatible image fallback, and `ui.getState()` remains available for hosts
-that do not push events.
-
-SDK 1.1.0 adds `client.projectSnapshots` for live project snapshots and
-transactional restore, without removing any 1.0.2 contract. Snapshots are
-optional; frontend-only modules that do not request `backend.tasks` keep
-reporting Workshop API `1.0.0`.
-
-SDK versions, the Workshop API, and module versions are separate. Lumina's
-current host pins SDK 1.0.1 for its own reproducible dependency graph while
-supporting the SDK 1.0.2 extensions above. New modules should pin SDK 1.1.0 and
-declare their tested host/API range in the manifest. For older hosts without
-extension support, omit `svgBytes` and `recommendedTotalThicknessMm` and send only
-base PNG handoff fields; PNG alongside unknown fields is not a fallback. Use
-`ui.getState()` when UI events are unavailable. The offline official bead seed remains 1.0.1;
-the signed catalog also offers the reviewed 1.0.8 update, which users install
-through the normal candidate/update flow.
-
-SDK、协议与模块版本分别管理。当前 Lumina 宿主锁定 SDK 1.0.1，但已支持上述 1.0.2
-扩展，并在支持工程快照的宿主上提供 1.1.0 的可选握手；新模块推荐锁定 SDK 1.1.0，并声明实际测试过的宿主兼容范围。支持不认识扩展的旧
-宿主时，应省略 `svgBytes` 和 `recommendedTotalThicknessMm`，只发送基础 PNG 字段；
-同时提供 PNG 不会让旧宿主接受未知字段。没有界面事件时使用 `ui.getState()`。
-官方离线预装拼豆包
-仍为 1.0.1，用户可从签名目录安装已审核的 1.0.8 更新；启动时不会强制升级预装包。
-
-The complete bilingual module-development and packaging guide is published at
-[`docs/module-development.md`](docs/module-development.md).
-
-## Minimal connection fixture
-
-```ts
-import {
-  applyWorkshopUiState,
-  connectWorkshop,
-} from "@lumina/workshop-sdk";
+import { applyWorkshopUiState, connectWorkshop } from "@lumina/workshop-sdk";
 
 const host = await connectWorkshop({
   moduleId: "studio.lumina.example",
@@ -172,17 +54,57 @@ const host = await connectWorkshop({
 const unsubscribe = host.ui.subscribeState(applyWorkshopUiState);
 applyWorkshopUiState(await host.ui.getState());
 await host.lifecycle.ready();
-
-// Call unsubscribe() before tearing down a long-lived module view.
 ```
 
-This initialization order is race-safe in SDK 1.0.2. The client caches the
-latest valid UI event from connection time, replays it synchronously when a
-listener subscribes, and prevents a late `getState()` snapshot from replacing
-a newer event. Once such an event exists, it is authoritative for that
-connection and later `getState()` calls return the cached event. With an older
-host that sends no events, every `getState()` call continues to use the RPC
-snapshot as before.
+## Capabilities and manifest
 
-The host validates the module identity, negotiates only declared permissions,
-and activates a candidate only after this ready handshake succeeds.
+- **Versions:** Frontend-only modules use manifest `1` (Workshop API `1.0.0`); modules requesting `backend.tasks` use manifest `2` (Workshop API `1.1.0`).
+- **Package contents:** `ui/index.html`, `manifest.json`, `assets/icon.png`, `README.md`, and `LICENSE`.
+
+### Live workspace snapshots (`client.projectSnapshots`)
+
+Modules with `project.storage` can declare `"projectSnapshots": { "protocol": 1, "schemas": ["my-editor/v1"] }` in `manifest.json` and register before `host.lifecycle.ready()` so unsaved edits save and restore with host `.lum` files:
+
+```ts
+const unregister = host.projectSnapshots.register({
+  capture: () => ({ schemaVersion: "my-editor/v1", state: editor.current() }),
+  prepare: (snapshot) => editor.validateAndPrepare(snapshot),
+  commit: (prepared) => editor.applyAndWaitForRender(prepared),
+});
+
+host.projectSnapshots.changed();
+```
+
+### Python module backends (`backend.tasks`)
+
+Manifest v2 modules can pair their UI with a local Python worker declared alongside a wheels-only, hash-pinned PEP 751 `pylock.toml`:
+
+```ts
+const host = await connectWorkshop({
+  moduleId: "studio.lumina.example",
+  moduleVersion: "1.0.0",
+  features: ["backend.tasks"],
+});
+
+const task = await host.backend.submit({ operation: "invert-alpha", params: {}, inputs });
+const finished = await host.backend.waitFor(task.taskId);
+```
+
+Backends run as local processes under the user's account; declared capabilities inform consent and review and are not an OS sandbox. See [`docs/backend-protocol.md`](docs/backend-protocol.md) and [`python/README.md`](python/README.md).
+
+## Contributing and local checks
+
+Requires Node.js 22+, `pnpm@10.33.2`, and Python 3.12+:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm test
+python3 -m unittest discover -s python/tests -v
+python3 python/build_wheel.py --output dist-package
+```
+
+See [docs/module-development.md](docs/module-development.md), [Lumina Workshop Registry](https://github.com/lumina-layer-studio/Lumina-Workshop-Registry), [CONTRIBUTING.md](CONTRIBUTING.md), and [SECURITY.md](SECURITY.md).
+
+## License
+
+Licensed under **GPL-3.0-or-later**. See [LICENSE](LICENSE).
