@@ -2,6 +2,8 @@
 export const WORKSHOP_API_VERSION = "1.0.0" as const;
 /** Workshop API that adds host-managed module backends (SDK 1.1.0). */
 export const WORKSHOP_BACKEND_API_VERSION = "1.1.0" as const;
+/** Workshop API that adds host-confirmed material import (`materials.import`). */
+export const WORKSHOP_MATERIAL_IMPORT_API_VERSION = "1.2.0" as const;
 export const WORKSHOP_MANIFEST_VERSION = 1 as const;
 /** Manifest version for modules that declare a backend. */
 export const WORKSHOP_BACKEND_MANIFEST_VERSION = 2 as const;
@@ -12,7 +14,10 @@ export const WORKSHOP_BACKEND_PROTOCOL_VERSION = 1 as const;
 export const WORKSHOP_RPC_EVENT_NAMES = ["ui.stateChanged"] as const;
 
 /** Optional capabilities a module requests in its ready handshake. */
-export const WORKSHOP_FEATURE_NAMES = ["backend.tasks"] as const;
+export const WORKSHOP_FEATURE_NAMES = [
+  "backend.tasks",
+  "materials.import",
+] as const;
 
 export type WorkshopFeatureName = (typeof WORKSHOP_FEATURE_NAMES)[number];
 
@@ -43,6 +48,7 @@ export const WORKSHOP_PERMISSION_NAMES = [
   "project.storage",
   "color-library.read",
   "handoff.image",
+  "material.import",
 ] as const;
 
 export type WorkshopPermissionName =
@@ -218,6 +224,30 @@ export interface WorkshopImageHandoff {
   recipeSource: WorkshopRecipeSource;
 }
 
+/**
+ * Ask the host to import one Stage-A material archive (`.zip`). The host
+ * shows its own confirmation dialog for every call and validates the archive
+ * itself; `summary` is shown labelled as module-provided and is not trusted.
+ * 请求宿主导入一个 Stage-A 耗材归档；宿主每次都弹出确认并自行校验归档。
+ */
+export interface WorkshopMaterialImportRequest {
+  /** One Stage-A material archive (.zip), 1 byte to 8 MiB. */
+  archiveBytes: ArrayBuffer;
+  /** Safe file name ending in `.zip`; shown in the confirmation. */
+  fileName: string;
+  /** Module-provided description; shown as such, never trusted. */
+  summary?: {
+    materials: Array<{ name: string; brand?: string; notes?: string[] }>;
+  };
+}
+
+export type WorkshopMaterialImportResult =
+  | { status: "cancelled" }
+  | {
+      status: "imported";
+      materials: Array<{ directoryName: string; name: string }>;
+    };
+
 export interface WorkshopProjectRecord<T = unknown> {
   projectId: string;
   schemaVersion: string;
@@ -254,6 +284,7 @@ export type WorkshopRpcMethod =
   | "project.remove"
   | "colorLibrary.read"
   | "handoff.image"
+  | "material.import"
   | "ui.getState"
   | "status.progress"
   | "status.error"
@@ -311,9 +342,13 @@ export interface WorkshopReadyMessage {
   moduleVersion: string;
   /**
    * Minimum API the module actually needs: 1.0.0 unless it requests
-   * backend tasks, so frontend-only modules keep working on older hosts.
+   * backend tasks (1.1.0) or material import (1.2.0), so other modules keep
+   * working on older hosts.
    */
-  apiVersion: typeof WORKSHOP_API_VERSION | typeof WORKSHOP_BACKEND_API_VERSION;
+  apiVersion:
+    | typeof WORKSHOP_API_VERSION
+    | typeof WORKSHOP_BACKEND_API_VERSION
+    | typeof WORKSHOP_MATERIAL_IMPORT_API_VERSION;
   events?: readonly WorkshopRpcEventName[];
   features?: readonly WorkshopFeatureName[];
 }

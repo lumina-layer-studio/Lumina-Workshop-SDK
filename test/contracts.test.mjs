@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   WORKSHOP_API_VERSION,
   WORKSHOP_BACKEND_API_VERSION,
+  WORKSHOP_FEATURE_NAMES,
   WORKSHOP_MANIFEST_VERSION,
+  WORKSHOP_MATERIAL_IMPORT_API_VERSION,
   WORKSHOP_PERMISSION_NAMES,
   WorkshopClientError,
   applyWorkshopUiState,
@@ -20,7 +22,28 @@ test("exports stable v1 identities and permission names", () => {
     "project.storage",
     "color-library.read",
     "handoff.image",
+    "material.import",
   ]);
+  assert.deepEqual(WORKSHOP_FEATURE_NAMES, ["backend.tasks", "materials.import"]);
+  assert.equal(WORKSHOP_MATERIAL_IMPORT_API_VERSION, "1.2.0");
+});
+
+test("creates a material import request envelope", () => {
+  const archiveBytes = new ArrayBuffer(4);
+  assert.deepEqual(
+    createRequestEnvelope("req-2", "material.import", {
+      archiveBytes,
+      fileName: "material.zip",
+    }),
+    {
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "request",
+      requestId: "req-2",
+      method: "material.import",
+      payload: { archiveBytes, fileName: "material.zip" },
+    },
+  );
 });
 
 test("creates a bounded protocol request envelope", () => {
@@ -917,4 +940,129 @@ test("applies only public Lumina theme tokens", () => {
   assert.equal(root.lang, "en-US");
   assert.equal(root.dataset.theme, "light");
   assert.deepEqual([...values], [["--lumina-surface", "#fff"]]);
+});
+
+test("requests material import with API 1.2.0", async (t) => {
+  const channel = new MessageChannel();
+  const posted = [];
+  const client = await connectWorkshop({
+    moduleId: "fixture.calibration",
+    moduleVersion: "1.0.0",
+    features: ["materials.import", "backend.tasks"],
+    windowObject: createConnectedWindow(channel, posted),
+  });
+  t.after(() => {
+    client.close();
+    channel.port1.close();
+  });
+  assert.equal(posted[0].apiVersion, "1.2.0");
+  assert.deepEqual(posted[0].features, ["materials.import", "backend.tasks"]);
+  assert.ok(client.features.has("materials.import"));
+});
+
+test("material import requires the requested feature", async (t) => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.hello",
+    moduleVersion: "1.0.0",
+    windowObject: createConnectedWindow(channel, []),
+  });
+  t.after(() => {
+    client.close();
+    channel.port1.close();
+  });
+  const archiveBytes = new ArrayBuffer(8);
+  await assert.rejects(
+    client.materials.import({ archiveBytes, fileName: "material.zip" }),
+    (error) =>
+      error instanceof WorkshopClientError &&
+      error.code === "FEATURE_NOT_REQUESTED",
+  );
+  assert.equal(archiveBytes.byteLength, 8);
+});
+
+test("imports a material archive by transfer and returns the host result", async (t) => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.calibration",
+    moduleVersion: "1.0.0",
+    features: ["materials.import"],
+    windowObject: createConnectedWindow(channel, []),
+  });
+  t.after(() => {
+    client.close();
+    channel.port1.close();
+  });
+  let received;
+  channel.port1.onmessage = ({ data }) => {
+    received = data;
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ok: true,
+      result: {
+        status: "imported",
+        materials: [{ directoryName: "example-pla-white", name: "PLA White" }],
+      },
+    });
+  };
+  const archiveBytes = new ArrayBuffer(32);
+  const summary = { materials: [{ name: "PLA White", brand: "Example", notes: ["n=3"] }] };
+  const result = await client.materials.import({
+    archiveBytes,
+    fileName: "pla-white.zip",
+    summary,
+  });
+  assert.equal(archiveBytes.byteLength, 0);
+  assert.equal(received.method, "material.import");
+  assert.equal(received.payload.fileName, "pla-white.zip");
+  assert.equal(received.payload.archiveBytes.byteLength, 32);
+  assert.deepEqual(received.payload.summary, summary);
+  assert.deepEqual(result, {
+    status: "imported",
+    materials: [{ directoryName: "example-pla-white", name: "PLA White" }],
+  });
+});
+
+test("surfaces a cancelled material import and host error codes", async (t) => {
+  const channel = new MessageChannel();
+  const client = await connectWorkshop({
+    moduleId: "fixture.calibration",
+    moduleVersion: "1.0.0",
+    features: ["materials.import"],
+    windowObject: createConnectedWindow(channel, []),
+  });
+  t.after(() => {
+    client.close();
+    channel.port1.close();
+  });
+  const answers = [
+    { ok: true, result: { status: "cancelled" } },
+    {
+      ok: false,
+      error: { code: "material-import-busy", message: "busy", retryable: true },
+    },
+  ];
+  channel.port1.onmessage = ({ data }) => {
+    channel.port1.postMessage({
+      protocol: "lumina-workshop-rpc",
+      version: 1,
+      kind: "response",
+      requestId: data.requestId,
+      ...answers.shift(),
+    });
+  };
+  assert.deepEqual(
+    await client.materials.import({ archiveBytes: new ArrayBuffer(1), fileName: "a.zip" }),
+    { status: "cancelled" },
+  );
+  await assert.rejects(
+    client.materials.import({ archiveBytes: new ArrayBuffer(1), fileName: "a.zip" }),
+    (error) =>
+      error instanceof WorkshopClientError &&
+      error.code === "material-import-busy" &&
+      error.retryable,
+  );
 });
