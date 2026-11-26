@@ -17,7 +17,7 @@ from typing import Any
 from ._channel import ChannelError, ControlChannel
 
 SDK_NAME = "lumina-workshop-backend"
-SDK_VERSION = "1.1.0"
+SDK_VERSION = "1.2.0"
 _OPERATION = re.compile(r"^[a-z][a-z0-9.-]{0,63}$")
 _ERROR_CODE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,79}$")
 _OUTPUT_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -78,6 +78,7 @@ class TaskContext:
     _is_cancelled: Callable[[], bool]
     _outputs: list[OutputFile] = field(default_factory=list)
     _last_progress: float = 0.0
+    artifacts: dict[str, Path] = field(default_factory=dict)
 
     @property
     def cancelled(self) -> bool:
@@ -184,6 +185,7 @@ class Backend:
                 for item in message.get("inputs") or []
             },
             models={str(key): Path(value) for key, value in (message.get("models") or {}).items()},
+            artifacts={str(key): Path(value) for key, value in (message.get("artifacts") or {}).items()},
             work_dir=Path(message["workDir"]),
             output_dir=Path(message["outputDir"]),
             variant=str(message.get("variant") or "cpu"),

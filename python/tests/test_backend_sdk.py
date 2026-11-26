@@ -21,7 +21,7 @@ from pathlib import Path
 SOURCE = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE))
 
-from lumina_workshop_backend import Backend, TaskContext, TaskFailure  # noqa: E402
+from lumina_workshop_backend import Backend, TaskContext, TaskFailure, __version__  # noqa: E402
 from lumina_workshop_backend.testing import run_operation  # noqa: E402
 
 BOOTSTRAP = textwrap.dedent(
@@ -141,6 +141,23 @@ class InProcessTests(unittest.TestCase):
             self.assertEqual(len(cancelled.progress), 1)
             self.assertEqual(run_operation(backend, "missing", work_root=Path(root) / "e").error_code, "unknown-operation")
 
+    def test_operation_reads_a_declared_artifact(self) -> None:
+        backend = Backend()
+
+        @backend.operation("labels")
+        def labels(task: TaskContext) -> None:
+            payload = task.artifacts["labels"].read_bytes()
+            task.write_output("labels", "labels.json", "application/json", payload)
+
+        with tempfile.TemporaryDirectory() as root:
+            artifact = Path(root) / "labels.json"
+            artifact.write_bytes(b'["cat", "dog"]')
+            done = run_operation(
+                backend, "labels", work_root=Path(root) / "task", artifacts={"labels": artifact}
+            )
+            self.assertEqual(done.status, "succeeded")
+            self.assertEqual(done.outputs["labels"].read_bytes(), artifact.read_bytes())
+
     def test_inputs_with_the_same_file_name_stay_distinct(self) -> None:
         backend = Backend()
 
@@ -232,6 +249,7 @@ class ProtocolTests(unittest.TestCase):
             try:
                 ready = self.until(reader, "ready")[-1]
                 self.assertEqual(ready["protocol"], 1)
+                self.assertEqual(ready["sdk"]["version"], __version__)
                 self.assertEqual(ready["operations"], ["echo", "fail", "wait"])
 
                 self.send(writer, self.run_message(root, "a" * 32, "echo"))

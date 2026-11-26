@@ -9,6 +9,7 @@ import { crc32, inflateSync } from 'node:zlib';
 import { unzipSync, zipSync, strToU8, strFromU8 } from '../templates/image-handoff/node_modules/fflate/esm/browser.js';
 import { chromium } from '../templates/image-handoff/node_modules/playwright/index.mjs';
 
+const directoryLinkType = process.platform === 'win32' ? 'junction' : 'dir';
 const template = fileURLToPath(new URL('../templates/image-handoff/', import.meta.url));
 
 for (const [name, mutate, expected] of [
@@ -21,7 +22,7 @@ for (const [name, mutate, expected] of [
     const dir = mkdtempSync(join(tmpdir(), 'workshop-invalid-'));
     try {
       cpSync(template, dir, { recursive: true, filter: source => !['node_modules', 'dist'].includes(basename(source)) });
-      symlinkSync(join(template, 'node_modules'), join(dir, 'node_modules'), 'dir');
+      symlinkSync(join(template, 'node_modules'), join(dir, 'node_modules'), directoryLinkType);
       mutate(dir);
       assert.throws(() => execFileSync(process.execPath, ['scripts/package.mjs'], { cwd: dir, stdio: 'pipe' }), error => {
         assert.match(error.stderr.toString(), expected); return true;
@@ -35,7 +36,7 @@ test('build rejects an empty installed SDK license', () => {
   try {
     cpSync(template, dir, { recursive: true, filter: source => !['node_modules', 'dist'].includes(basename(source)) });
     mkdirSync(join(dir, 'node_modules', '@lumina'), { recursive: true });
-    for (const name of ['esbuild', 'fflate', 'playwright']) symlinkSync(realpathSync(join(template, 'node_modules', name)), join(dir, 'node_modules', name), 'dir');
+    for (const name of ['esbuild', 'fflate', 'playwright']) symlinkSync(realpathSync(join(template, 'node_modules', name)), join(dir, 'node_modules', name), directoryLinkType);
     cpSync(realpathSync(join(template, 'node_modules', '@lumina/workshop-sdk')), join(dir, 'node_modules/@lumina/workshop-sdk'), { recursive: true });
     writeFileSync(join(dir, 'node_modules/@lumina/workshop-sdk/LICENSE'), ' \n\t\n');
     assert.throws(() => execFileSync(process.execPath, ['scripts/package.mjs'], { cwd: dir, stdio: 'pipe' }), error => { assert.match(error.stderr.toString(), /license/i); return true; });
@@ -46,7 +47,7 @@ test('changing only manifest identity changes the package name and real ready me
   const dir = mkdtempSync(join(tmpdir(), 'workshop-copy-'));
   try {
     cpSync(template, dir, { recursive: true, filter: source => !['node_modules', 'dist'].includes(basename(source)) });
-    symlinkSync(join(template, 'node_modules'), join(dir, 'node_modules'), 'dir');
+    symlinkSync(join(template, 'node_modules'), join(dir, 'node_modules'), directoryLinkType);
     const manifestPath = join(dir, 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath));
     manifest.id = 'example.changed-module'; manifest.version = '2.3.4-rc.1+build.2';
@@ -105,7 +106,7 @@ test('accepts complete licenses with CRLF line endings in the final package', ()
 test('real MessageChannel retries preserve PNG and project identity, then new selection gets a new ID', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'workshop-handoff-'));
   cpSync(template, dir, { recursive: true, filter: source => !['node_modules', 'dist'].includes(basename(source)) });
-  symlinkSync(join(template, 'node_modules'), join(dir, 'node_modules'), 'dir');
+  symlinkSync(join(template, 'node_modules'), join(dir, 'node_modules'), directoryLinkType);
   const manifestPath = join(dir, 'manifest.json');
   const manifest = JSON.parse(readFileSync(manifestPath));
   manifest.id = 'example.changed-module'; manifest.version = '2.3.4';
