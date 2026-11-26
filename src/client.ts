@@ -14,6 +14,7 @@ import {
   WorkshopImageHandoff,
   WorkshopMaterialImportRequest,
   WorkshopMaterialImportResult,
+  WorkshopMaterialImportControl,
   WorkshopPickedImage,
   WorkshopProjectRecord,
   WorkshopRpcMethod,
@@ -29,7 +30,7 @@ const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const IMAGE_PICK_REQUEST_TIMEOUT_MS = 300_000;
 const HANDOFF_REQUEST_TIMEOUT_MS = 120_000;
-/** Material import waits for the user's answer in a host dialog. */
+/** Confirmation deadline only; a committed import waits for the upload result. */
 const MATERIAL_IMPORT_REQUEST_TIMEOUT_MS = 300_000;
 const MAX_LOCALLY_TIMED_OUT_REQUEST_IDS = 256;
 const BACKEND_TERMINAL_STATUSES = new Set([
@@ -177,6 +178,8 @@ export interface WorkshopClient {
 }
 
 interface PendingRequest {
+  method: WorkshopRpcMethod;
+  committed: boolean;
   resolve(value: unknown): void;
   reject(reason: WorkshopClientError): void;
   timeout: ReturnType<typeof setTimeout>;
@@ -269,6 +272,12 @@ class PortWorkshopClient implements WorkshopClient {
   private uiStateEventSequence = 0;
   private requestSequence = 0;
   private closed = false;
+  private readonly onPortClose = () => this.failProtocol(
+    new WorkshopClientError(
+      "CONNECTION_CLOSED",
+      "The Workshop connection was closed. Check the library before retrying a committed material import.",
+    ),
+  );
 
   constructor(
     sessionId: string,
@@ -289,6 +298,7 @@ class PortWorkshopClient implements WorkshopClient {
         ),
       );
     };
+    this.port.addEventListener("close", this.onPortClose);
     this.port.start();
 
     this.image = {
@@ -494,9 +504,11 @@ class PortWorkshopClient implements WorkshopClient {
       return;
     }
     this.closed = true;
+    this.cancelMaterialImports();
     this.projectEndpoint.close();
     this.port.onmessage = null;
     this.port.onmessageerror = null;
+    this.port.removeEventListener("close", this.onPortClose);
     this.port.close();
     this.uiStateListeners.clear();
     this.rejectAll(
@@ -528,6 +540,11 @@ class PortWorkshopClient implements WorkshopClient {
 
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        const pending = this.pending.get(requestId);
+        if (!pending || pending.committed) return;
+        if (method === "material.import") {
+          this.sendMaterialControl(requestId, "material-import-cancel");
+        }
         this.pending.delete(requestId);
         this.rememberTimedOutRequestId(requestId);
         reject(
@@ -539,6 +556,8 @@ class PortWorkshopClient implements WorkshopClient {
         );
       }, timeoutMs);
       this.pending.set(requestId, {
+        method,
+        committed: false,
         resolve: (value) => resolve(value as T),
         reject,
         timeout,
@@ -564,6 +583,28 @@ class PortWorkshopClient implements WorkshopClient {
 
   private handleMessage(value: unknown): void {
     if (this.projectEndpoint.receive(value)) return;
+    if (
+      isRecord(value) &&
+      value.protocol === "lumina-workshop-rpc" &&
+      value.version === WORKSHOP_RPC_VERSION &&
+      value.kind === "control" &&
+      value.action === "material-import-prepared" &&
+      typeof value.requestId === "string" &&
+      Object.keys(value).length === 5
+    ) {
+      const pending = this.pending.get(value.requestId);
+      // A confirmation arriving after expiry must never authorize an upload.
+      if (pending?.method !== "material.import" || pending.committed) return;
+      clearTimeout(pending.timeout);
+      pending.committed = true;
+      if (!this.sendMaterialControl(value.requestId, "material-import-commit")) {
+        this.failProtocol(new WorkshopClientError(
+          "REQUEST_SEND_FAILED",
+          "The material import connection was lost. Check the library before retrying.",
+        ));
+      }
+      return;
+    }
     const event = parseEvent(value);
     if (event !== null) {
       this.publishUiState(event.payload);
@@ -638,13 +679,39 @@ class PortWorkshopClient implements WorkshopClient {
       return;
     }
     this.closed = true;
+    this.cancelMaterialImports();
     this.projectEndpoint.close();
     this.port.onmessage = null;
     this.port.onmessageerror = null;
+    this.port.removeEventListener("close", this.onPortClose);
     this.port.close();
     this.uiStateListeners.clear();
     this.latestUiState = null;
     this.rejectAll(error);
+  }
+
+  private sendMaterialControl(
+    requestId: string,
+    action: WorkshopMaterialImportControl["action"],
+  ): boolean {
+    try {
+      const message: WorkshopMaterialImportControl = {
+        protocol: "lumina-workshop-rpc", version: WORKSHOP_RPC_VERSION,
+        kind: "control", requestId, action,
+      };
+      this.port.postMessage(message);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private cancelMaterialImports(): void {
+    for (const [requestId, pending] of this.pending) {
+      if (pending.method === "material.import") {
+        this.sendMaterialControl(requestId, "material-import-cancel");
+      }
+    }
   }
 
   private rejectAll(error: WorkshopClientError): void {

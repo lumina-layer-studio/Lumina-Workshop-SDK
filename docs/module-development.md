@@ -310,6 +310,28 @@ if (result.status === "imported") {
 - Python 后端 SDK 无需改动：后端把归档写为任务产物，模块界面用
   `client.backend.readOutput()` 读取后再调用 `client.materials.import()`。
 
+确认等待上限为五分钟，过期时 SDK 发送取消并撤销宿主弹窗；过期后点击确认不能
+再触发导入。用户确认后，宿主先发 `material-import-prepared`，仍在等待的 SDK
+才回复 `material-import-commit`，宿主收到提交才上传归档。控制消息固定为
+`{ protocol: "lumina-workshop-rpc", version: 1, kind: "control", requestId, action }`，
+其中 `action` 仅允许 `material-import-prepared`、`material-import-commit`、
+`material-import-cancel`，并且只能操作当前端口上的同一条耗材导入请求。
+提交后不再使用确认计时器，等待上传实际结果。关闭连接会取消未提交确认并中止
+在途 HTTP 请求，但已提交请求的网络中断并不证明服务端没有导入；
+`material-import-outcome-unknown` 或不可重试的 `material-import-failed` 应先检查
+耗材库，不能自动重试。取消前的归档缓冲区已转移，重试前需重新读取任务产物。
+
+The five-minute limit applies only to confirmation. The host sends a
+`material-import-prepared` control after confirmation; the live client replies
+with `material-import-commit` before any upload starts. Expiry sends
+`material-import-cancel`, so late confirmation cannot import anything. Controls
+use the exact envelope above and the original request ID on the same port.
+After commit, both peers wait for the upload result instead of reporting a
+confirmation timeout. Closing the connection aborts the HTTP request, not a
+server transaction: an unknown outcome is non-retryable and the module must ask
+the user to check the library before retrying. Read a fresh archive buffer when
+retrying because the previous buffer was transferred.
+
 A module that produces a Stage-A material archive, such as a calibration
 module, declares `material.import`, sets `workshopApi.min` to at least `1.2.0`,
 and connects with `features: ["materials.import"]` (reporting API `1.2.0`).

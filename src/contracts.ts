@@ -325,6 +325,23 @@ export interface WorkshopRpcResponse {
   };
 }
 
+/**
+ * Material import confirmation is not permission to upload on its own.
+ * The host sends prepared after user confirmation; the still-waiting client
+ * commits, or cancels on expiry. Only commit starts the host upload. These
+ * controls are scoped to one pending material.import request on the same port.
+ */
+export interface WorkshopMaterialImportControl {
+  protocol: "lumina-workshop-rpc";
+  version: typeof WORKSHOP_RPC_VERSION;
+  kind: "control";
+  requestId: string;
+  action:
+    | "material-import-prepared"
+    | "material-import-commit"
+    | "material-import-cancel";
+}
+
 export interface WorkshopRpcEventEnvelope {
   protocol: "lumina-workshop-rpc";
   version: typeof WORKSHOP_RPC_VERSION;
