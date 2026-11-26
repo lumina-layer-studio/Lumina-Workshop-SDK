@@ -5,6 +5,7 @@ import {
   WORKSHOP_API_VERSION,
   WORKSHOP_BACKEND_API_VERSION,
   WORKSHOP_FEATURE_NAMES,
+  WORKSHOP_DOWNLOAD_SOURCES_API_VERSION,
   WORKSHOP_MANIFEST_VERSION,
   WORKSHOP_MATERIAL_IMPORT_API_VERSION,
   WORKSHOP_PERMISSION_NAMES,
@@ -715,6 +716,7 @@ test("requests backend tasks with API 1.1.0 and keeps 1.0.0 otherwise", async ()
     projectSnapshotProtocol: 1,
   });
   assert.equal(WORKSHOP_BACKEND_API_VERSION, "1.1.0");
+  assert.equal(WORKSHOP_DOWNLOAD_SOURCES_API_VERSION, "1.2.0");
   assert.ok(client.features.has("backend.tasks"));
   client.close();
   channel.port1.close();

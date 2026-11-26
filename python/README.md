@@ -1,7 +1,10 @@
 # lumina-workshop-backend
 
 Python SDK for Lumina Studio Creative Workshop module backends (Workshop API
-1.1.0, control protocol v1). Standard library only; Python 3.12.
+1.1.0 or newer, control protocol v1). Standard library only; Python 3.12.
+
+`TaskContext.artifacts` is available in Python SDK 1.2.0 for modules that
+declare `backend.artifacts` on a Workshop API 1.2.0 host.
 
 ```python
 from lumina_workshop_backend import Backend, TaskContext, TaskFailure

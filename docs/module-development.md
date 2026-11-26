@@ -57,6 +57,7 @@ documented in `README.md`; frontend-only modules that do not request
 | 推荐的模块 SDK / Recommended module SDK | `1.1.0` | 新模块锁定精确 Release；工程快照为可选能力 / Pin the exact release; project snapshots are optional |
 | 纯前端 API / Manifest | `1.0.0` / `1` | 保留原有兼容性 / Existing frontend compatibility |
 | 后端 API / Manifest | `1.1.0` / `2` | 仅声明后端能力的模块使用 / Modules declaring backend capability only |
+| 下载源、附加文件与多语言权限 / Download sources, artifacts and localized reasons | `1.2.0` | 声明这些字段时要求 API 1.2.0；读取 `TaskContext.artifacts` 要求 Python SDK 1.2.0 / Declare API 1.2.0 for these fields; Python SDK 1.2.0 is required to read artifacts |
 | 官方离线预装拼豆包 / Offline bead seed | `1.0.1` | 首次安装与离线恢复 / First installation and offline recovery |
 | 已审核的在线拼豆更新 / Reviewed bead update | `1.0.8` | 用户从签名目录安装 / User-installed catalog update |
 

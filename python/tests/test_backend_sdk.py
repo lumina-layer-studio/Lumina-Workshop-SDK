@@ -21,7 +21,7 @@ from pathlib import Path
 SOURCE = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE))
 
-from lumina_workshop_backend import Backend, TaskContext, TaskFailure  # noqa: E402
+from lumina_workshop_backend import Backend, TaskContext, TaskFailure, __version__  # noqa: E402
 from lumina_workshop_backend.testing import run_operation  # noqa: E402
 
 BOOTSTRAP = textwrap.dedent(
@@ -249,6 +249,7 @@ class ProtocolTests(unittest.TestCase):
             try:
                 ready = self.until(reader, "ready")[-1]
                 self.assertEqual(ready["protocol"], 1)
+                self.assertEqual(ready["sdk"]["version"], __version__)
                 self.assertEqual(ready["operations"], ["echo", "fail", "wait"])
 
                 self.send(writer, self.run_message(root, "a" * 32, "echo"))

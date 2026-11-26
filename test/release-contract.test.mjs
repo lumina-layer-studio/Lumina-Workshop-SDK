@@ -65,6 +65,8 @@ test("release inspects the same packed files as CI and the packed manifest", asy
 test("python backend SDK version matches the package version", async () => {
   const pyproject = await readText("../python/pyproject.toml");
   const init = await readText("../python/src/lumina_workshop_backend/__init__.py");
+  const backend = await readText("../python/src/lumina_workshop_backend/_backend.py");
+  assert.ok(backend.includes(`SDK_VERSION = "${packageValue.version}"`));
   assert.match(pyproject, new RegExp(`version = "${packageValue.version}"`));
   assert.match(init, new RegExp(`__version__ = "${packageValue.version}"`));
   assert.match(pyproject, /dependencies = \[\]/);
