@@ -15,6 +15,7 @@
 | 读取色库与耗材预览 | `color-library.read` |
 | 本地工程与 `.lum` 快照 | `project.storage`，可选配合 `client.projectSnapshots`（`projectSnapshots.register`、`projectSnapshots.changed`） |
 | 本地 Python 任务后端 | `"manifestVersion": 2`、`backend.tasks` 与 `lumina_workshop_backend` |
+| 经宿主确认导入耗材（提议中） | `material.import` 权限、`materials.import` 能力、`client.materials.import()` |
 
 新建纯前端模块可直接复制 [`templates/image-handoff`](templates/image-handoff)，运行 `pnpm install --frozen-lockfile`、`pnpm build` 和 `pnpm check`。打包细节见 [`docs/module-development.md`](docs/module-development.md)。
 
@@ -58,7 +59,7 @@ await host.lifecycle.ready();
 
 ## 能力与清单约定
 
-- **版本约定：** 纯前端模块使用 manifest `1`（Workshop API `1.0.0`）；声明 `backend.tasks` 的后端模块使用 manifest `2`（Workshop API `1.1.0`）。
+- **版本约定：** 纯前端模块使用 manifest `1`（Workshop API `1.0.0`）；声明 `backend.tasks` 的后端模块使用 manifest `2`（Workshop API `1.1.0`）；请求 `materials.import` 的模块上报 Workshop API `1.2.0`（提议中）。
 - **包内文件：** `ui/index.html`、`manifest.json`、`assets/icon.png`、`README.md` 与 `LICENSE`。
 
 ### 工程实时快照（`client.projectSnapshots`）
@@ -91,6 +92,29 @@ const finished = await host.backend.waitFor(task.taskId);
 ```
 
 后端以当前用户权限在本机进程中运行；声明的能力用于授权提示与目录审阅，并非操作系统级沙箱。协议细节见 [`docs/backend-protocol.md`](docs/backend-protocol.md) 与 [`python/README.md`](python/README.md)。
+
+### 耗材导入（`material.import`，提议中的 Workshop API `1.2.0`）
+
+能生成 Stage-A 耗材归档的模块（例如校准模块）可以请求宿主把归档导入用户的耗材库，而不必让用户下载 ZIP 再到耗材页面手动导入：
+
+```ts
+const host = await connectWorkshop({
+  moduleId: "example.calibration",
+  moduleVersion: "1.0.0",
+  features: ["materials.import"],
+});
+
+const result = await host.materials.import({
+  archiveBytes, // 一个 Stage-A 耗材归档（.zip），转移给宿主
+  fileName: "example-pla-white.zip",
+  summary: { materials: [{ name: "PLA White", brand: "Example" }] },
+});
+if (result.status === "imported") {
+  // result.materials: [{ directoryName, name }]
+}
+```
+
+manifest 需声明 `material.import` 且 `workshopApi.min >= 1.2.0`。宿主每次调用都会弹出自己的确认对话框（取消返回 `{ status: "cancelled" }`）；每次只导入一个不超过 8 MiB 的归档，使用与耗材库页面相同的导入器校验并在失败时回滚；模块提供的 `summary` 仅标注为“由模块提供”显示，宿主不信任它。只有耗材库本身允许导入的本机或桌面宿主可用；错误码包括 `material-import-busy`、`material-import-invalid`、`material-import-unavailable` 与 `material-import-failed`。Python 后端 SDK 不变：后端把归档写为任务产物，由模块界面用 `backend.readOutput()` 读取后再调用 `materials.import()`。详见 [`docs/module-development.md`](docs/module-development.md)。
 
 ## 参与贡献与本地检查
 

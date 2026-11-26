@@ -182,6 +182,11 @@ alone is not proof of a repository transfer.
 | `project.storage` | `client.projects.*` | 只能访问本模块命名空间；单记录 64 MiB、模块总量 256 MiB |
 | `color-library.read` | `client.colorLibrary.read()` | 只返回规范化色库，不暴露 LUT、耗材档案路径或私有状态 |
 | `handoff.image` | `client.handoff.image()` | 重新校验 PNG、像素、物理尺寸、色库身份和 1 MiB 配方信封 |
+| `material.import` | `client.materials.import()` | 每次调用都由宿主弹窗确认；单个 Stage-A 归档，最多 8 MiB；宿主复用耗材库导入器校验并回滚；仅本机/桌面宿主（API 1.2.0，提议中） |
+
+| Permission | SDK call | Host boundary |
+| --- | --- | --- |
+| `material.import` | `client.materials.import()` | Host dialog confirms every call; one Stage-A archive, at most 8 MiB; the host validates it with its material-library importer and rolls back failures; local/desktop hosts only (API 1.2.0, proposed) |
 
 权限理由会显示给用户。更新新增权限时，宿主必须再次确认，拒绝后旧版本继续可用。
 v1 没有一般网络权限。
@@ -267,6 +272,84 @@ token、Registry 签名或桌面令牌。Lumina 导入分享卡时只校验通�
 如果转换器已有工作，第一次交接返回 `needs-confirmation`，模块应显示清楚的替换确认，
 再由用户触发第二次交接。成功后仍走 Lumina 原有的 LUT/耗材档案、叠色预览和 3MF
 生成路径。不要把辅助网格、编号、水印、选中框或诊断覆盖层写入最终 PNG。
+
+## 耗材导入 / Material import
+
+能生成 Stage-A 耗材归档的模块（例如校准模块）可以请求宿主把归档导入用户的耗材库，
+而不必让用户下载 ZIP 再到耗材页面手动导入：
+
+```ts
+const client = await connectWorkshop({
+  moduleId,
+  moduleVersion,
+  features: ["materials.import"],
+});
+const result = await client.materials.import({
+  archiveBytes,                 // 一个 Stage-A 耗材归档（.zip），转移给宿主
+  fileName: "example-pla-white.zip",
+  summary: { materials: [{ name: "PLA White", brand: "Example", notes: ["3 次测量"] }] },
+});
+if (result.status === "imported") {
+  // result.materials: [{ directoryName, name }]
+}
+```
+
+- manifest 声明 `material.import` 权限，且 `workshopApi.min` 至少为 `1.2.0`；请求
+  `materials.import` 能力的模块上报 API `1.2.0`。
+- 宿主每次调用都在 iframe 外显示确认对话框，列出模块名称、ID、发布者、审核等级、
+  文件名与大小，以及标为“由模块提供”的 `summary`。用户取消时返回
+  `{ status: "cancelled" }`，宿主不会发出导入请求。同一模块同时只能有一个待确认的
+  导入，第二次调用返回 `material-import-busy`。
+- 每次只导入一个归档：`archiveBytes` 为 1 B 至 8 MiB，`fileName` 为以 `.zip` 结尾的
+  安全文件名，`summary` 最多 16 个耗材、每项最多 8 条备注、每个字符串不超过 120
+  字符。超出时返回 `rpc-payload-invalid` 或 `rpc-binary-too-large`，不会弹窗。
+- 宿主使用与耗材库页面相同的导入器校验归档，失败时回滚，不会留下半导入的耗材。
+  错误码：`material-import-invalid`（归档无效，附服务器的安全说明）、
+  `material-import-unavailable`（宿主的耗材库不接受导入，例如非本机浏览器部署）、
+  `material-import-failed`（其他失败）。
+- Python 后端 SDK 无需改动：后端把归档写为任务产物，模块界面用
+  `client.backend.readOutput()` 读取后再调用 `client.materials.import()`。
+
+确认等待上限为五分钟，过期时 SDK 发送取消并撤销宿主弹窗；过期后点击确认不能
+再触发导入。用户确认后，宿主先发 `material-import-prepared`，仍在等待的 SDK
+才回复 `material-import-commit`，宿主收到提交才上传归档。控制消息固定为
+`{ protocol: "lumina-workshop-rpc", version: 1, kind: "control", requestId, action }`，
+其中 `action` 仅允许 `material-import-prepared`、`material-import-commit`、
+`material-import-cancel`，并且只能操作当前端口上的同一条耗材导入请求。
+提交后不再使用确认计时器，等待上传实际结果。关闭连接会取消未提交确认并中止
+在途 HTTP 请求，但已提交请求的网络中断并不证明服务端没有导入；
+`material-import-outcome-unknown` 或不可重试的 `material-import-failed` 应先检查
+耗材库，不能自动重试。取消前的归档缓冲区已转移，重试前需重新读取任务产物。
+
+The five-minute limit applies only to confirmation. The host sends a
+`material-import-prepared` control after confirmation; the live client replies
+with `material-import-commit` before any upload starts. Expiry sends
+`material-import-cancel`, so late confirmation cannot import anything. Controls
+use the exact envelope above and the original request ID on the same port.
+After commit, both peers wait for the upload result instead of reporting a
+confirmation timeout. Closing the connection aborts the HTTP request, not a
+server transaction: an unknown outcome is non-retryable and the module must ask
+the user to check the library before retrying. Read a fresh archive buffer when
+retrying because the previous buffer was transferred.
+
+A module that produces a Stage-A material archive, such as a calibration
+module, declares `material.import`, sets `workshopApi.min` to at least `1.2.0`,
+and connects with `features: ["materials.import"]` (reporting API `1.2.0`).
+The host confirms every call in its own dialog outside the iframe, showing the
+module identity, publisher, review level, file name and size, and the
+module's `summary` labelled as module-provided. Cancelling returns
+`{ status: "cancelled" }` without contacting the server; a second call while a
+dialog is open fails with `material-import-busy`. Each call imports one
+archive of 1 B to 8 MiB with a safe `.zip` file name; `summary` holds at most
+16 materials, 8 notes each, and strings of at most 120 characters. Invalid
+payloads fail with `rpc-payload-invalid` or `rpc-binary-too-large` before any
+dialog. The host validates the archive with its material-library importer and
+rolls back failures; errors are `material-import-invalid`,
+`material-import-unavailable` (the host's material library does not accept
+imports, for example outside a local or desktop host), and
+`material-import-failed`. The Python backend SDK is unchanged: a backend writes
+the archive as a task output that the module UI reads with
+`client.backend.readOutput()` before importing it.
 
 ## 单文件包
 
